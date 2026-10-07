@@ -1,6 +1,6 @@
 # PC Builder
 
-A 3D PC assembly simulator for students. Drag the core components from the pegboard into the case, press **Finish build**, and get a grade with an explanation of every deduction.
+A 3D PC assembly simulator for students. Drag the core components from the anti-static mat on the desk into the case, press **Finish build**, and get a grade with an explanation of every deduction.
 
 It's a static site with no server and no database.
 
@@ -28,7 +28,7 @@ All of the rules are in [`src/grade.ts`](src/grade.ts) and can be edited. Each b
 | Order | RAM after the cooler −5, M.2 after the GPU −5 |
 | Time | −1 per minute over 8 minutes, capped at −10 |
 
-Cables aren't on the pegboard. Clicking the installed PSU shows its cables, clicking the installed SSD shows the SATA data cable, and clicking anything else hides the loose ones again.
+Cables aren't on the mat. Clicking the installed PSU shows its cables, clicking the installed SSD shows the SATA data cable, and clicking anything else hides the loose ones again.
 
 Students can't go back and fix a skipped step. The standoff holes are covered once the motherboard is in, and the top of the CPU is covered once the cooler is on.
 

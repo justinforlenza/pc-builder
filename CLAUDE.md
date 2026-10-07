@@ -34,7 +34,8 @@ There are three layers, and data flows one way: scene → `onPlace` → app stat
   - `hiddenBy` is what makes a skipped step permanent. The standoffs slot closes once the motherboard is placed, and the paste slot closes once the cooler is placed. That's how "forgotten" deductions become gradable.
   - Wrong but compatible slots (RAM in A1/B1, GPU in the bottom x16) are allowed on purpose, because they're what the placement rules grade.
 - **`src/models.ts`: untextured three.js geometry and world layout.**
-  - `SLOT_POS` gives each slot's world position, `REST` gives each part's pegboard position, and `GPU_POWER_OFFSET` and `PSU_CABLE_EXIT` are relative offsets.
+  - `SLOT_POS` gives each slot's world position, and `GPU_POWER_OFFSET` and `PSU_CABLE_EXIT` are relative offsets. `buildDesk()` builds the desk, the anti-static mat and the mat's ground cord. The case's feet stand on `DESK_TOP`.
+  - Before a part is installed, `placeAtRest(id, g)` poses it. A part lies on the mat at its `MAT_SPOT` (x, z), rotated by `MAT_ROT` (face-up by default), and its height is derived from its bounding box. A cable waits at its `CABLE_SPOT` in front of the case. The returned pose is stored as `userData.rest`. Snapping into a slot resets the rotation to none, and a missed drop restores the rest pose.
   - Each `buildPartMesh` group has its origin at its mount point, so snapping a part means `position.copy(slotPos)`.
   - The world frame: the motherboard tray is the z=0 plane, the open side faces +z toward the camera, and the case's rear wall (I/O, expansion slots, PSU cutouts) is at x=-2.3. One unit is about 9.5 cm.
   - Moving a board slot or the PSU means keeping the rear-wall cutouts in `buildCase()` lined up with it.
@@ -44,8 +45,7 @@ There are three layers, and data flows one way: scene → `onPlace` → app stat
   - It keeps its own placement log for `isSlotOpen` and reports each placement through `onPlace`.
   - The `pointerdown` listener is registered in the capture phase so it runs before OrbitControls.
   - **Cables start hidden.** `CABLE_OWNER` maps each cable to the component that reveals it (`psu` or `ssd`). A click (pointer up within `CLICK_PX` of pointer down, with no drag) on that component, once it's installed, calls `reveal()`. A click anywhere else hides the loose cables.
-  - Revealed cables wait at their `REST` spot in front of the case. A cable's run is drawn by `updateTube`: PSU cables run from `PSU_CABLE_EXIT`, and the two SATA data ends share one tube between them. A data end stays visible while its other end is plugged in.
-  - Parts listed in `REST_ROT` (the SSD) hang rotated on the pegboard and are reset to no rotation when they snap into place.
+  - Revealed cables wait at their `CABLE_SPOT` in front of the case. A cable's run is drawn by `updateTube`: PSU cables run from `PSU_CABLE_EXIT`, and the two SATA data ends share one tube between them. A data end stays visible while its other end is plugged in.
 - **`src/main.tsx`: Preact HUD.**
   - Shows the timer, the "Finish build" button and the results `<dialog>`.
   - Adds timestamps to the event log, then calls `grade()`.
@@ -56,4 +56,4 @@ There are three layers, and data flows one way: scene → `onPlace` → app stat
 Unit tests only cover `grade.ts`. To check scene or model changes:
 1. `npm run build && npm run preview`.
 2. Drive drag-and-drop with Playwright. The headless Chromium is at `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`; launch it with `--use-gl=swiftshader --enable-unsafe-swiftshader`.
-3. Compute screen coordinates by projecting `REST` and `SLOT_POS` through a camera that matches the initial one: position (5, 1, 14), looking at (5, -0.4, 0), fov 45.
+3. Compute screen coordinates by projecting rest poses (build the part with `buildPartMesh`, then call `placeAtRest`) and `SLOT_POS` through a camera that matches the initial one: position (4.6, 6, 14), looking at (4.6, -1.4, 1.6), fov 45.

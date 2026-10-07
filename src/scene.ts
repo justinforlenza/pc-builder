@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { PARTS, SLOTS, isSlotOpen, type PartId, type PlaceEvent, type SlotId } from './grade.ts'
-import { buildCase, buildPartMesh, v, GPU_POWER_OFFSET, PSU_CABLE_EXIT, REST, REST_ROT, SATA_RED, SLOT_POS } from './models.ts'
+import { buildCase, buildDesk, buildPartMesh, placeAtRest, v, GPU_POWER_OFFSET, PSU_CABLE_EXIT, SATA_RED, SLOT_POS } from './models.ts'
 
 const SNAP_PX = 70
 const CLICK_PX = 5
@@ -45,13 +45,12 @@ function buildPart(id: PartId): THREE.Group {
     g.add(label('PCIe x16 #1', v(0.15, -0.65, 0.2), 0.12), label('PCIe x16 #2', v(0.15, -1.3, 0.2), 0.12))
     for (let i = 0; i < 4; i++) g.add(label(`SATA${i + 1}`, v(1.24, -0.65 - i * 0.14, 0.2), 0.1))
   }
-  if (REST_ROT[id]) g.rotation.copy(REST_ROT[id])
-  // Label above the part as it hangs on the pegboard (worldToLocal undoes any rest rotation).
+  g.userData.rest = placeAtRest(id, g)
+  // Label above the part where it waits (worldToLocal undoes the rest pose).
   const b = new THREE.Box3().setFromObject(g)
   g.userData.label = label(PARTS[id].name, g.worldToLocal(v((b.min.x + b.max.x) / 2, b.max.y + 0.15, b.max.z + 0.1)))
   g.add(g.userData.label)
   g.userData.part = id
-  g.position.copy(REST[id])
   g.visible = !CABLE_OWNER[id]
   return g
 }
@@ -62,15 +61,13 @@ export function createScene(canvas: HTMLCanvasElement, onPlace: (part: PartId, s
   const scene = new THREE.Scene()
   scene.background = new THREE.Color(0xdfe3ea)
   const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100)
-  camera.position.set(5, 1, 14)
+  camera.position.set(4.6, 6, 14)
   const sun = new THREE.DirectionalLight(0xffffff, 1.5)
   sun.position.set(4, 8, 10)
   scene.add(new THREE.HemisphereLight(0xffffff, 0x666677, 2), sun)
 
   scene.add(buildCase())
-  const pegboard = new THREE.Mesh(new THREE.BoxGeometry(9.2, 6.8, 0.1), new THREE.MeshStandardMaterial({ color: 0xc8a27a }))
-  pegboard.position.set(7.8, -0.4, -0.05)
-  scene.add(pegboard)
+  scene.add(buildDesk())
 
   const parts = new Map((Object.keys(PARTS) as PartId[]).map(id => [id, buildPart(id)]))
   parts.forEach(p => scene.add(p))
@@ -107,7 +104,7 @@ export function createScene(canvas: HTMLCanvasElement, onPlace: (part: PartId, s
       if (isPlaced(id)) continue
       const p = partner(id)
       parts.get(id)!.visible = CABLE_OWNER[id] === owner || (p !== null && isPlaced(p))
-      parts.get(id)!.position.copy(REST[id])
+      parts.get(id)!.position.copy(parts.get(id)!.userData.rest.position)
     }
     new Set(CABLES.map(tubeKey)).forEach(updateTube)
   }
@@ -127,7 +124,7 @@ export function createScene(canvas: HTMLCanvasElement, onPlace: (part: PartId, s
   }))
 
   const controls = new OrbitControls(camera, canvas)
-  controls.target.set(5, -0.4, 0)
+  controls.target.set(4.6, -1.4, 1.6)
   controls.enableDamping = true
 
   const ray = new THREE.Raycaster()
@@ -210,8 +207,8 @@ export function createScene(canvas: HTMLCanvasElement, onPlace: (part: PartId, s
       log.push({ part: id, slot: nearest, t: 0 })
       onPlace(id, nearest)
     } else {
-      group.position.copy(REST[id])
-      if (REST_ROT[id]) group.rotation.copy(REST_ROT[id])
+      group.position.copy(group.userData.rest.position)
+      group.rotation.copy(group.userData.rest.rotation)
     }
     if (CABLE_OWNER[id]) updateTube(tubeKey(id))
     drag = null

@@ -34,20 +34,43 @@ export const GPU_POWER_OFFSET = v(1.3, -0.05, 1.15)
 /** Where cables leave the PSU's modular panel, relative to the PSU. */
 export const PSU_CABLE_EXIT = v(0.82, 0.15, 0)
 
-// Where each part hangs on the pegboard before it's installed.
-export const REST: Record<PartId, THREE.Vector3> = {
-  motherboard: v(5, 1.1, 0.05), standoffs: v(5, -2.1, 0.05),
-  cooler: v(7.6, 1.6, 0.05), gpu: v(10, 2.4, 0.05), psu: v(10.6, 0.7, 0.8),
-  cpu: v(7.4, 0.1, 0.05), paste: v(8.6, 0.1, 0.05), m2: v(7.6, -0.9, 0.05),
-  ram1: v(9.4, -1.4, 0.05), ram2: v(10.6, -1.4, 0.05),
-  ssd: v(8.3, -2.9, 0.05),
-  // Cables aren't on the pegboard: they appear here, in front of the case, when their
-  // installed component (PSU or SSD) is clicked.
+// Workspace: the case stands on a desk; parts lie on an anti-static mat beside it.
+export const DESK_TOP = -2.72 // the case's feet rest here
+const MAT = { x0: 3, x1: 12.6, z0: -0.9, z1: 5.7, thick: 0.03 }
+const MAT_TOP = DESK_TOP + MAT.thick
+
+/** Where each part lies on the mat (x, z); its height is derived so it rests on the mat surface. */
+const MAT_SPOT: Partial<Record<PartId, [number, number]>> = {
+  motherboard: [5, 1], standoffs: [5, 4.1],
+  cooler: [7.3, 1.6], gpu: [8.9, -0.5], psu: [11.5, 0.3],
+  ram1: [9.2, 1.7], ram2: [10.8, 1.7],
+  cpu: [7.8, 3.2], paste: [8.9, 3.2], m2: [10.1, 3.2], ssd: [11.6, 3.3],
+}
+/** Cables aren't on the mat: they appear here, in front of the case, when their installed component is clicked. */
+const CABLE_SPOT: Partial<Record<PartId, THREE.Vector3>> = {
   cable24: v(-1.5, -0.8, 2.5), cableEps: v(0.1, -0.8, 2.5), cablePcie: v(-1.5, -1.6, 2.5), cableSataPower: v(0.1, -1.6, 2.5),
   sataDataMb: v(1, -0.9, 2.5), sataDataDrive: v(1, -1.6, 2.5),
 }
-/** Pegboard orientation for parts that are stored differently from how they mount. */
-export const REST_ROT: Partial<Record<PartId, THREE.Euler>> = { ssd: new THREE.Euler(Math.PI / 2, 0, 0) }
+/** How a part lies on the mat. Most lie face-up; the GPU, PSU and SSD already rest flat as modelled. */
+const FACE_UP = new THREE.Euler(-Math.PI / 2, 0, 0)
+const MAT_ROT: Partial<Record<PartId, THREE.Euler>> = {
+  ram1: new THREE.Euler(0, 0, Math.PI / 2), ram2: new THREE.Euler(0, 0, Math.PI / 2),
+  gpu: new THREE.Euler(), psu: new THREE.Euler(), ssd: new THREE.Euler(),
+}
+
+/** Puts a freshly built part where it waits before install (mat or cable spot) and returns that pose. */
+export function placeAtRest(id: PartId, g: THREE.Group) {
+  const cable = CABLE_SPOT[id]
+  if (cable) g.position.copy(cable)
+  else {
+    g.rotation.copy(MAT_ROT[id] ?? FACE_UP)
+    g.position.set(0, 0, 0)
+    const minY = new THREE.Box3().setFromObject(g).min.y
+    const [x, z] = MAT_SPOT[id]!
+    g.position.set(x, MAT_TOP - minY, z)
+  }
+  return { position: g.position.clone(), rotation: g.rotation.clone() }
+}
 
 // Palette
 const PCB = 0x1f3d2b, BLACK = 0x161616, DARK = 0x2a2a2e, METAL = 0xa8acb2, ALU = 0xc9ccd1,
@@ -121,6 +144,33 @@ function panel(x0: number, y0: number, x1: number, y1: number, depth: number,
   }
   return new THREE.Mesh(new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false }),
     new THREE.MeshStandardMaterial({ color: CASE, metalness: 0.3, roughness: 0.7 }))
+}
+
+/** Desk, anti-static mat, and the mat's coiled ground cord clipped to the case. */
+export function buildDesk(): THREE.Group {
+  const desk = box(18, 0.15, 9, 0x8b6a4a, v(4.5, DESK_TOP - 0.075, 2.2))
+  const mx = (MAT.x0 + MAT.x1) / 2, mz = (MAT.z0 + MAT.z1) / 2, mw = MAT.x1 - MAT.x0, md = MAT.z1 - MAT.z0
+  const mat = group(
+    box(mw, 0.01, md, BLACK, v(mx, DESK_TOP + 0.005, mz)), // conductive under-layer
+    box(mw - 0.02, MAT.thick - 0.01, md - 0.02, 0xe7e4d6, v(mx, DESK_TOP + 0.01 + (MAT.thick - 0.01) / 2, mz)),
+  )
+  const BLUE = 0x7ec8e3
+  const snap = v(MAT.x0 + 0.35, MAT_TOP, MAT.z1 - 0.35)
+  const clip = v(2.42, -2.25, 1.9) // alligator clip on the case's front edge
+  // Coiled cord: a helix wound around a path from the snap to the clip.
+  const path = new THREE.CatmullRomCurve3([snap.clone().add(v(0, 0.04, 0)), v(2.9, DESK_TOP + 0.08, 4.6), v(2.7, DESK_TOP + 0.08, 3), clip.clone().add(v(0.05, -0.15, 0))])
+  const frames = path.computeFrenetFrames(400, false)
+  const coil = Array.from({ length: 401 }, (_, i) => {
+    const a = (i / 400) * Math.PI * 2 * 45, r = i < 20 || i > 380 ? 0 : 0.05
+    return path.getPointAt(i / 400).add(frames.normals[i].clone().multiplyScalar(Math.cos(a) * r)).add(frames.binormals[i].clone().multiplyScalar(Math.sin(a) * r))
+  })
+  const cord = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(coil), 1600, 0.012, 6), new THREE.MeshStandardMaterial({ color: BLUE }))
+  return group(
+    desk, mat, cord,
+    cyl(0.07, 0.04, BLUE, snap.clone().add(v(0, 0.02, 0)), 'y'), // snap button
+    box(0.05, 0.12, 0.05, BLUE, clip.clone().add(v(0.05, -0.12, 0))), // plug
+    box(0.03, 0.18, 0.05, METAL, clip.clone().add(v(0.02, 0, 0)), 0.8), box(0.03, 0.18, 0.05, METAL, clip.clone().add(v(-0.02, 0, 0)), 0.8), // jaws
+  )
 }
 
 export function buildCase(): THREE.Group {
