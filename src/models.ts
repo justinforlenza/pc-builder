@@ -256,10 +256,10 @@ function ram(g: THREE.Group) {
   g.add(
     box(0.025, 1.33, 0.3, 0x1b5e20, v(0, 0, 0.15)), // PCB
     box(0.03, 1.25, 0.04, GOLD, v(0, 0, 0.02), 0.6), // contacts
-    box(0.015, 1.3, 0.28, DARK, v(-0.022, 0, 0.18), 0.6), // heat spreaders
-    box(0.015, 1.3, 0.28, DARK, v(0.022, 0, 0.18), 0.6),
-    box(0.06, 1.3, 0.04, 0x8e24aa, v(0, 0, 0.34)), // top bar
   )
+  // Flash chips on both faces, 4 + 4 split around the key notch.
+  for (const x of [-0.0175, 0.0175])
+    for (let i = 0; i < 8; i++) g.add(box(0.01, 0.13, 0.1, BLACK, v(x, -0.56 + i * 0.15 + (i >= 4 ? 0.04 : 0), 0.17)))
 }
 
 function cooler(g: THREE.Group) {
