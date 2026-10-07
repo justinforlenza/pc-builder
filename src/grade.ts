@@ -92,9 +92,7 @@ export const RULES = {
       message: 'RAM should go in slots A2 and B2 so it runs in dual-channel mode (check the motherboard manual).' },
     { parts: ['gpu'], slots: ['pcie1'], points: 5,
       message: 'The graphics card belongs in the top PCIe x16 slot, which has the full x16 lanes from the CPU.' },
-    { parts: ['sataDataMb'], slots: ['sata1', 'sata3', 'sata4'], when: 'm2', points: 5,
-      message: 'SATA port 2 shares lanes with the M.2 slot and is disabled while an M.2 SSD is installed (check the motherboard manual).' },
-  ] as { parts: PartId[]; slots: SlotId[]; when?: PartId; points: number; message: string }[],
+  ] as { parts: PartId[]; slots: SlotId[]; points: number; message: string }[],
   order: [
     { first: ['ram1', 'ram2'], then: 'cooler', points: 5,
       message: 'Install RAM before the CPU cooler; large coolers block access to the DIMM slots.' },
@@ -126,7 +124,6 @@ export function grade(log: PlaceEvent[], elapsedMs: number): GradeResult {
   }
 
   for (const r of RULES.placement) {
-    if (r.when && !at.has(r.when)) continue
     if (r.parts.some(p => at.has(p) && !r.slots.includes(at.get(p)!.slot)))
       deductions.push({ category: 'Placement', points: r.points, message: r.message })
   }

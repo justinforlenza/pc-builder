@@ -52,8 +52,7 @@ test('empty build clamps to 0 / F', () => {
   assert.equal(grade([], 0).letter, 'F')
 })
 
-test('SATA2 is a placement deduction only while an M.2 SSD is installed', () => {
+test('M.2 and SATA SSD together, on any SATA port, is not penalized', () => {
   const steps = PERFECT.map(([p, s]): [PartId, SlotId] => [p, p === 'sataDataMb' ? 'sata2' : s])
-  assert.equal(grade(log(steps), 0).score, 95)
-  assert.equal(grade(log(steps.filter(([p]) => p !== 'm2')), 0).score, 85) // only the missing M.2 (-15)
+  assert.equal(grade(log(steps), 0).score, 100)
 })

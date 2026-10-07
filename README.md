@@ -24,7 +24,7 @@ All of the rules are in [`src/grade.ts`](src/grade.ts) and can be edited. Each b
 | Category | Default deductions |
 |---|---|
 | Forgotten | standoffs −15, thermal paste −15, any other part −15, each unplugged cable connection −10 (24-pin, EPS, PCIe power, SATA power, SATA data at the motherboard, SATA data at the SSD) |
-| Placement | RAM not in A2 + B2 −5, GPU not in the top x16 slot −5, SATA data in SATA2 while an M.2 SSD is installed −5 (shared lanes) |
+| Placement | RAM not in A2 + B2 −5, GPU not in the top x16 slot −5 |
 | Order | RAM after the cooler −5, M.2 after the GPU −5 |
 | Time | −1 per minute over 8 minutes, capped at −10 |
 
