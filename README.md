@@ -13,7 +13,9 @@ npm test         # grading rule tests
 npm run build    # static site in dist/
 ```
 
-You can host `dist/` anywhere static, such as GitHub Pages, Netlify or a school web server. It also works under a subpath or embedded in an LMS page with an `<iframe>`.
+Every push to `main` deploys to GitHub Pages through `.github/workflows/deploy.yml`. The first time, set **Settings → Pages → Source** to **GitHub Actions**.
+
+You can also host `dist/` anywhere static, such as GitHub Pages, Netlify or a school web server. It also works under a subpath or embedded in an LMS page with an `<iframe>`.
 
 ## Grading
 
