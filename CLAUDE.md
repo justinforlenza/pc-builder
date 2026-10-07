@@ -1,0 +1,56 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Commands
+
+```sh
+npm run dev       # Vite dev server
+npm run build     # tsc (typecheck only, noEmit) && vite build → dist/
+npm run preview   # serve dist/ on :4173
+npm test          # node:test on src/grade.test.ts via Node 22 type stripping
+node --experimental-strip-types --no-warnings --test --test-name-pattern="RAM in A1" src/grade.test.ts   # single test
+```
+
+There's no linter. `npx tsc` is the only static check.
+
+## Constraints
+
+- **Static site only:** no server and no database. `vite.config.ts` sets `base: './'` so `dist/` works under any subpath (GitHub Pages at `/pc-builder/`, an LMS iframe). Every push to `main` deploys via `.github/workflows/deploy.yml`, and the tests gate that deploy.
+- **Node runs `src/grade.ts` directly** with `--experimental-strip-types`. So in `grade.ts` and anything it imports:
+  - no enums or namespaces (use string-literal unions)
+  - relative imports keep the `.ts` extension (`allowImportingTsExtensions` is on)
+- **`grade.ts` must stay framework-free and DOM-free.** Phase 2 (LTI 1.3 grade passback through a small serverless function) will import it server-side to re-grade a submitted event log.
+
+## Architecture
+
+There are three layers, and data flows one way: scene → `onPlace` → app state → `grade()`.
+
+- **`src/grade.ts`: rules and grading, the single source of truth for gameplay.**
+  - `PARTS` maps each part to a `kind`.
+  - `SLOTS` lists, for each slot, the kind it `accepts`, the kinds it `requires`, and the kinds it is `hiddenBy`.
+  - `isSlotOpen(slot, log)` decides whether a slot can be used right now. The scene uses it while dragging.
+  - `grade(log, elapsedMs)` applies `RULES`, which covers missing parts, placement, order and time. `RULES` is the teacher-editable table.
+  - `hiddenBy` is what makes a skipped step permanent. The standoffs slot closes once the motherboard is placed, and the paste slot closes once the cooler is placed. That's how "forgotten" deductions become gradable.
+  - Wrong but compatible slots (RAM in A1/B1, GPU in the bottom x16) are allowed on purpose, because they're what the placement rules grade.
+- **`src/models.ts`: untextured three.js geometry and world layout.**
+  - `SLOT_POS` gives each slot's world position, `REST` gives each part's pegboard position, and `GPU_POWER_OFFSET` and `PSU_CABLE_EXIT` are relative offsets.
+  - Each `buildPartMesh` group has its origin at its mount point, so snapping a part means `position.copy(slotPos)`.
+  - The world frame: the motherboard tray is the z=0 plane, the open side faces +z toward the camera, and the case's rear wall (I/O, expansion slots, PSU cutouts) is at x=-2.3. One unit is about 9.5 cm.
+  - Moving a board slot or the PSU means keeping the rear-wall cutouts in `buildCase()` lined up with it.
+  - `pciePower` has no fixed position. It's computed from wherever the GPU was placed.
+- **`src/scene.ts`: interaction.**
+  - Holds the renderer, OrbitControls, labels (canvas sprites, never raycast), pointer drag on a camera-facing plane, and snapping to the nearest open, compatible slot within `SNAP_PX` in screen space.
+  - It keeps its own placement log for `isSlotOpen` and reports each placement through `onPlace`.
+  - The `pointerdown` listener is registered in the capture phase so it runs before OrbitControls.
+- **`src/main.tsx`: Preact HUD.**
+  - Shows the timer, the "Finish build" button and the results `<dialog>`.
+  - Adds timestamps to the event log, then calls `grade()`.
+  - There's deliberately no parts checklist, because it would reveal forgotten steps.
+
+## Verifying visual or interaction changes
+
+Unit tests only cover `grade.ts`. To check scene or model changes:
+1. `npm run build && npm run preview`.
+2. Drive drag-and-drop with Playwright. The headless Chromium is at `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`; launch it with `--use-gl=swiftshader --enable-unsafe-swiftshader`.
+3. Compute screen coordinates by projecting `REST` and `SLOT_POS` through a camera that matches the initial one: position (5, 1, 14), looking at (5, -0.4, 0), fov 45.
