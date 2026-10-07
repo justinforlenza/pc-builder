@@ -1,0 +1,20 @@
+* { box-sizing: border-box; }
+html, body, #app { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
+canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+header {
+  position: fixed; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 1rem;
+  padding: 0.5rem 1rem; background: rgba(20, 20, 28, 0.85); color: #fff;
+}
+h1 { font-size: 1.1rem; margin: 0; flex: 1; }
+.timer { font-variant-numeric: tabular-nums; font-size: 1.1rem; }
+button { font: inherit; padding: 0.4rem 1rem; border: 0; border-radius: 6px; background: #00a3b8; color: #fff; cursor: pointer; }
+button:disabled { opacity: 0.5; cursor: default; }
+.hint {
+  position: fixed; bottom: 0; left: 0; right: 0; margin: 0; padding: 0.5rem 1rem;
+  background: rgba(20, 20, 28, 0.75); color: #fff; text-align: center;
+}
+dialog { max-width: 36rem; border: 0; border-radius: 10px; padding: 1.5rem; }
+dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+dialog h2 { margin-top: 0; }
+.score { font-size: 2rem; font-weight: bold; margin: 0 0 1rem; }
+dialog li { margin-bottom: 0.5rem; }

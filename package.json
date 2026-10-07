@@ -1,0 +1,24 @@
+{
+  "name": "pc-builder",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "node --experimental-strip-types --no-warnings --test src/grade.test.ts"
+  },
+  "dependencies": {
+    "preact": "^11.0.0",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.6",
+    "@types/node": "^26.6.4",
+    "@types/three": "^0.186.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.3"
+  }
+}
