@@ -19,7 +19,7 @@ export const SLOT_POS: Record<Exclude<SlotId, 'pciePower'>, THREE.Vector3> = {
   paste: SOCKET.clone().add(v(0, 0, 0.08)),
   cooler: SOCKET.clone().add(v(0, 0, 0.09)),
   dimmA1: onBoard(0.45, 0.7), dimmA2: onBoard(0.6, 0.7), dimmB1: onBoard(0.75, 0.7), dimmB2: onBoard(0.9, 0.7),
-  m2: onBoard(-0.5, -0.95),
+  m2: onBoard(-0.5, -0.15, 0.09), // above the top x16 slot, so the GPU never covers it; drive sits 0.03 off the board
   pcie1: onBoard(-0.78, -0.65), pcie2: onBoard(-0.78, -1.3),
   psu: v(-1.45, -2.05, 1),
   atx24: onBoard(1.5, 0.45),
@@ -259,9 +259,15 @@ function motherboard(g: THREE.Group) {
   // PCIe x1 slot between them.
   on(0.26, 0.075, 0.07, BLACK, -1.1, -0.98)
 
-  // M.2 socket and its standoff.
-  on(0.06, 0.2, 0.05, BLACK, -0.97, -0.95)
-  g.add(cyl(0.025, 0.04, GOLD, B(-0.04, -0.95, 0.08)))
+  // M.2 (M-key, 2280): keyed edge socket with gold contacts, standoff at 80 mm,
+  // spare screw holes for 2242/2260 drives, silkscreen outline.
+  on(0.07, 0.155, 0.06, BLACK, -0.985, -0.1875)
+  on(0.07, 0.06, 0.06, BLACK, -0.985, -0.065) // the gap between the two blocks is the M key
+  on(0.006, 0.2, 0.02, GOLD, -0.948, -0.15, 0.6)
+  g.add(cyl(0.03, 0.03, GOLD, B(-0.05, -0.15, 0.075)))
+  for (const x of [-0.53, -0.35]) g.add(cyl(0.03, 0.004, METAL, B(x, -0.15, 0.062)))
+  for (const [x, y, w, h] of [[-0.5, -0.01, 1, 0.008], [-0.5, -0.29, 1, 0.008], [-1, -0.15, 0.008, 0.28], [0, -0.15, 0.008, 0.28]] as const)
+    on(w, h, 0.002, WHITE, x, y)
 
   // Chipset heatsink, CMOS battery, SATA ports, headers, capacitors.
   on(0.5, 0.5, 0.06, DARK, 0.8, -1.0, 0.5)
@@ -351,9 +357,11 @@ function cpu(g: THREE.Group) {
 }
 
 function m2(g: THREE.Group) {
+  // 2280 drive: origin = center of the underside; gold fingers (notched for the M key) at -x, screw at +x.
   g.add(
-    box(0.9, 0.2, 0.015, 0x0d1b4c, v(0, 0, 0.0075)),
-    box(0.05, 0.18, 0.016, GOLD, v(-0.43, 0, 0.008), 0.6),
+    box(0.9, 0.23, 0.015, 0x0d1b4c, v(0, 0, 0.0075)),
+    box(0.05, 0.155, 0.016, GOLD, v(-0.425, -0.0375, 0.008), 0.6), box(0.05, 0.06, 0.016, GOLD, v(-0.425, 0.085, 0.008), 0.6),
+    cyl(0.035, 0.012, METAL, v(0.44, 0, 0.021)), // mounting screw
     box(0.14, 0.14, 0.02, BLACK, v(-0.25, 0, 0.025)), // controller
     box(0.2, 0.15, 0.02, BLACK, v(0.02, 0, 0.025)), box(0.2, 0.15, 0.02, BLACK, v(0.27, 0, 0.025)), // NAND
   )

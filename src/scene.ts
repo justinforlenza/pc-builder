@@ -43,6 +43,7 @@ function buildPart(id: PartId): THREE.Group {
   if (id === 'motherboard') {
     ;['A1', 'A2', 'B1', 'B2'].forEach((t, i) => g.add(label(t, v(0.45 + i * 0.15, 1.58, 0.2), 0.12)))
     g.add(label('PCIe x16 #1', v(0.15, -0.65, 0.2), 0.12), label('PCIe x16 #2', v(0.15, -1.3, 0.2), 0.12))
+    g.add(label('M.2', v(-1.2, -0.15, 0.2), 0.1))
     for (let i = 0; i < 4; i++) g.add(label(`SATA${i + 1}`, v(1.24, -0.65 - i * 0.14, 0.2), 0.1))
   }
   g.userData.rest = placeAtRest(id, g)
