@@ -4,15 +4,18 @@
 export type Kind =
   | 'standoffs' | 'motherboard' | 'cpu' | 'paste' | 'cooler' | 'ram'
   | 'm2' | 'gpu' | 'psu' | 'cable24' | 'cableEps' | 'cablePcie'
+  | 'ssd' | 'cableSataPower' | 'sataDataMb' | 'sataDataDrive'
 
 export type PartId =
   | 'standoffs' | 'motherboard' | 'cpu' | 'paste' | 'cooler' | 'ram1' | 'ram2'
   | 'm2' | 'gpu' | 'psu' | 'cable24' | 'cableEps' | 'cablePcie'
+  | 'ssd' | 'cableSataPower' | 'sataDataMb' | 'sataDataDrive'
 
 export type SlotId =
   | 'standoffs' | 'motherboard' | 'socket' | 'paste' | 'cooler'
   | 'dimmA1' | 'dimmA2' | 'dimmB1' | 'dimmB2' | 'm2' | 'pcie1' | 'pcie2'
   | 'psu' | 'atx24' | 'eps8' | 'pciePower'
+  | 'driveBay' | 'sataPower' | 'sata1' | 'sata2' | 'sata3' | 'sata4' | 'ssdData'
 
 /** One install action. t = ms since the build started. */
 export interface PlaceEvent { part: PartId; slot: SlotId; t: number }
@@ -34,6 +37,10 @@ export const PARTS: Record<PartId, { name: string; kind: Kind }> = {
   cable24: { name: '24-pin ATX cable', kind: 'cable24' },
   cableEps: { name: '8-pin EPS (CPU) cable', kind: 'cableEps' },
   cablePcie: { name: 'PCIe power cable', kind: 'cablePcie' },
+  ssd: { name: '2.5" SATA SSD', kind: 'ssd' },
+  cableSataPower: { name: 'SATA power cable', kind: 'cableSataPower' },
+  sataDataMb: { name: 'SATA data cable (motherboard end)', kind: 'sataDataMb' },
+  sataDataDrive: { name: 'SATA data cable (drive end)', kind: 'sataDataDrive' },
 }
 
 /**
@@ -58,6 +65,13 @@ export const SLOTS: Record<SlotId, { name: string; accepts: Kind; requires?: Kin
   atx24: { name: '24-pin ATX header', accepts: 'cable24', requires: ['motherboard', 'psu'] },
   eps8: { name: '8-pin EPS header', accepts: 'cableEps', requires: ['motherboard', 'psu'] },
   pciePower: { name: 'GPU power connector', accepts: 'cablePcie', requires: ['gpu', 'psu'] },
+  driveBay: { name: 'drive cage', accepts: 'ssd' },
+  sataPower: { name: 'SSD power connector', accepts: 'cableSataPower', requires: ['ssd', 'psu'] },
+  ssdData: { name: 'SSD data connector', accepts: 'sataDataDrive', requires: ['ssd'] },
+  sata1: { name: 'SATA port 1', accepts: 'sataDataMb', requires: ['motherboard'] },
+  sata2: { name: 'SATA port 2', accepts: 'sataDataMb', requires: ['motherboard'] },
+  sata3: { name: 'SATA port 3', accepts: 'sataDataMb', requires: ['motherboard'] },
+  sata4: { name: 'SATA port 4', accepts: 'sataDataMb', requires: ['motherboard'] },
 }
 
 /** Teacher-editable grading rules. Points are deducted from 100. */
@@ -68,6 +82,9 @@ export const RULES = {
     cable24: [10, '24-pin ATX cable not connected: the motherboard gets no power.'],
     cableEps: [10, '8-pin EPS cable not connected: the CPU gets no power.'],
     cablePcie: [10, 'PCIe power cable not connected: the graphics card gets no power.'],
+    cableSataPower: [10, 'SATA power cable not connected: the SSD gets no power.'],
+    sataDataMb: [10, 'SATA data cable not plugged into the motherboard: the SSD will not be detected.'],
+    sataDataDrive: [10, 'SATA data cable not plugged into the SSD: it will not be detected.'],
   } as Partial<Record<PartId, [number, string]>>,
   missingDefault: 15,
   placement: [
@@ -75,7 +92,9 @@ export const RULES = {
       message: 'RAM should go in slots A2 and B2 so it runs in dual-channel mode (check the motherboard manual).' },
     { parts: ['gpu'], slots: ['pcie1'], points: 5,
       message: 'The graphics card belongs in the top PCIe x16 slot, which has the full x16 lanes from the CPU.' },
-  ] as { parts: PartId[]; slots: SlotId[]; points: number; message: string }[],
+    { parts: ['sataDataMb'], slots: ['sata1', 'sata3', 'sata4'], when: 'm2', points: 5,
+      message: 'SATA port 2 shares lanes with the M.2 slot and is disabled while an M.2 SSD is installed (check the motherboard manual).' },
+  ] as { parts: PartId[]; slots: SlotId[]; when?: PartId; points: number; message: string }[],
   order: [
     { first: ['ram1', 'ram2'], then: 'cooler', points: 5,
       message: 'Install RAM before the CPU cooler; large coolers block access to the DIMM slots.' },
@@ -107,6 +126,7 @@ export function grade(log: PlaceEvent[], elapsedMs: number): GradeResult {
   }
 
   for (const r of RULES.placement) {
+    if (r.when && !at.has(r.when)) continue
     if (r.parts.some(p => at.has(p) && !r.slots.includes(at.get(p)!.slot)))
       deductions.push({ category: 'Placement', points: r.points, message: r.message })
   }

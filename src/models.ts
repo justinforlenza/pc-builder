@@ -10,6 +10,7 @@ export const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
 const BOARD = v(-0.6, 0.6, 0.12) // motherboard back face, sitting on 0.12-tall standoffs
 const onBoard = (x: number, y: number, z = 0.06) => BOARD.clone().add(v(x, y, z))
 const SOCKET = onBoard(-0.5, 0.7)
+const DRIVE_BAY = v(0.97, -2.07, 1.05) // top bay of the floor drive cage; SSD origin = center of its underside
 
 export const SLOT_POS: Record<Exclude<SlotId, 'pciePower'>, THREE.Vector3> = {
   standoffs: BOARD.clone().setZ(0),
@@ -23,6 +24,10 @@ export const SLOT_POS: Record<Exclude<SlotId, 'pciePower'>, THREE.Vector3> = {
   psu: v(-1.45, -2.05, 1),
   atx24: onBoard(1.5, 0.45),
   eps8: onBoard(-1, 1.48),
+  sata1: onBoard(1.5, -0.65, 0.13), sata2: onBoard(1.5, -0.79, 0.13), sata3: onBoard(1.5, -0.93, 0.13), sata4: onBoard(1.5, -1.07, 0.13),
+  driveBay: DRIVE_BAY,
+  ssdData: DRIVE_BAY.clone().add(v(-0.22, 0.035, 0.525)),
+  sataPower: DRIVE_BAY.clone().add(v(0.1, 0.035, 0.525)),
 }
 /** GPU power socket relative to the GPU's slot (the GPU can sit in either x16 slot). */
 export const GPU_POWER_OFFSET = v(1.3, -0.05, 1.15)
@@ -35,12 +40,19 @@ export const REST: Record<PartId, THREE.Vector3> = {
   cooler: v(7.6, 1.6, 0.05), gpu: v(10, 2.4, 0.05), psu: v(10.6, 0.7, 0.8),
   cpu: v(7.4, 0.1, 0.05), paste: v(8.6, 0.1, 0.05), m2: v(7.6, -0.9, 0.05),
   ram1: v(9.4, -1.4, 0.05), ram2: v(10.6, -1.4, 0.05),
-  cable24: v(7.4, -3, 0.05), cableEps: v(9.5, -3, 0.05), cablePcie: v(11.5, -3, 0.05),
+  ssd: v(8.3, -2.9, 0.05),
+  // Cables aren't on the pegboard: they appear here, in front of the case, when their
+  // installed component (PSU or SSD) is clicked.
+  cable24: v(-1.5, -0.8, 2.5), cableEps: v(0.1, -0.8, 2.5), cablePcie: v(-1.5, -1.6, 2.5), cableSataPower: v(0.1, -1.6, 2.5),
+  sataDataMb: v(1, -0.9, 2.5), sataDataDrive: v(1, -1.6, 2.5),
 }
+/** Pegboard orientation for parts that are stored differently from how they mount. */
+export const REST_ROT: Partial<Record<PartId, THREE.Euler>> = { ssd: new THREE.Euler(Math.PI / 2, 0, 0) }
 
 // Palette
 const PCB = 0x1f3d2b, BLACK = 0x161616, DARK = 0x2a2a2e, METAL = 0xa8acb2, ALU = 0xc9ccd1,
   GOLD = 0xd4af37, COPPER = 0xb87333, WHITE = 0xe8e8e8, CASE = 0x3a3f4b
+export const SATA_RED = 0xc62828
 
 function box(w: number, h: number, d: number, color: number, at = v(0, 0, d / 2), metal = 0) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color, metalness: metal, roughness: 0.6 }))
@@ -135,10 +147,14 @@ export function buildCase(): THREE.Group {
   rearFan.rotation.y = Math.PI / 2
   rearFan.position.set(-2.16, 1.35, 1.35)
 
+  // Two-bay 2.5" drive cage on the floor, beside the PSU.
+  const cage = [0.49, 1.45].map(x => box(0.04, 0.75, 1.2, CASE, v(x, -2.125, 1)))
+  for (const y of [-2.08, -2.33]) cage.push(box(1, 0.02, 1.2, CASE, v(0.97, y, 1)))
+
   const feet = [-1.9, 1.9].flatMap(x => [0.3, 1.9].map(z => box(0.4, 0.12, 0.25, BLACK, v(x, -2.66, z))))
 
   return group(
-    tray, rear, rearFan, ...feet,
+    tray, rear, rearFan, ...cage, ...feet,
     box(4.6, 0.1, 2.2, CASE, v(0, 2.55, 1.1)), box(4.6, 0.1, 2.2, CASE, v(0, -2.55, 1.1)),
     box(0.1, 5.2, 2.2, CASE, v(2.35, 0, 1.1)),
   )
@@ -293,8 +309,19 @@ function m2(g: THREE.Group) {
   )
 }
 
-function plug(g: THREE.Group, w: number, h: number) {
-  g.add(box(w, h, 0.15, BLACK), box(Math.min(w, h) * 0.6, 0.04, 0.08, BLACK, v(0, h / 2 + 0.02, 0.1)))
+function plug(g: THREE.Group, w: number, h: number, color = BLACK) {
+  g.add(box(w, h, 0.15, color), box(Math.min(w, h) * 0.6, 0.04, 0.08, color, v(0, h / 2 + 0.02, 0.1)))
+}
+
+function ssd(g: THREE.Group) {
+  // 2.5" drive lying flat. Origin = center of the underside; SATA connectors on the +z edge.
+  g.add(
+    box(0.73, 0.07, 1.05, DARK, v(0, 0.035, 0), 0.6),
+    box(0.6, 0.004, 0.75, 0x3949ab, v(0, 0.072, -0.05)), // label
+    box(0.13, 0.05, 0.03, BLACK, v(-0.22, 0.035, 0.51)), // data connector
+    box(0.22, 0.05, 0.03, BLACK, v(0.1, 0.035, 0.51)), // power connector
+  )
+  for (const x of [-0.366, 0.366]) for (const z of [-0.3, 0.3]) g.add(cyl(0.015, 0.01, BLACK, v(x, 0.035, z), 'x'))
 }
 
 export function buildPartMesh(id: PartId): THREE.Group {
@@ -315,6 +342,9 @@ export function buildPartMesh(id: PartId): THREE.Group {
     case 'cable24': plug(g, 0.12, 0.6); break
     case 'cableEps': plug(g, 0.35, 0.12); break
     case 'cablePcie': plug(g, 0.3, 0.12); break
+    case 'cableSataPower': plug(g, 0.22, 0.05); break
+    case 'sataDataMb': case 'sataDataDrive': plug(g, 0.13, 0.05, SATA_RED); break
+    case 'ssd': ssd(g); break
   }
   return g
 }

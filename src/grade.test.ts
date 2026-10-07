@@ -6,6 +6,7 @@ const PERFECT: [PartId, SlotId][] = [
   ['standoffs', 'standoffs'], ['motherboard', 'motherboard'], ['cpu', 'socket'], ['ram1', 'dimmA2'],
   ['ram2', 'dimmB2'], ['m2', 'm2'], ['paste', 'paste'], ['cooler', 'cooler'], ['psu', 'psu'],
   ['gpu', 'pcie1'], ['cable24', 'atx24'], ['cableEps', 'eps8'], ['cablePcie', 'pciePower'],
+  ['ssd', 'driveBay'], ['cableSataPower', 'sataPower'], ['sataDataDrive', 'ssdData'], ['sataDataMb', 'sata1'],
 ]
 const log = (steps: [PartId, SlotId][]): PlaceEvent[] => steps.map(([part, slot], t) => ({ part, slot, t }))
 const without = (part: PartId) => PERFECT.filter(([p]) => p !== part)
@@ -49,4 +50,10 @@ test('time penalty is per full minute over 8 and capped at 10', () => {
 test('empty build clamps to 0 / F', () => {
   assert.deepEqual(grade([], 0).score, 0)
   assert.equal(grade([], 0).letter, 'F')
+})
+
+test('SATA2 is a placement deduction only while an M.2 SSD is installed', () => {
+  const steps = PERFECT.map(([p, s]): [PartId, SlotId] => [p, p === 'sataDataMb' ? 'sata2' : s])
+  assert.equal(grade(log(steps), 0).score, 95)
+  assert.equal(grade(log(steps.filter(([p]) => p !== 'm2')), 0).score, 85) // only the missing M.2 (-15)
 })

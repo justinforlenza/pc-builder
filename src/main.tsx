@@ -44,7 +44,7 @@ function App() {
       <p class="hint">
         {last
           ? `Installed ${PARTS[last.part].name} → ${SLOTS[last.slot].name}`
-          : 'Drag parts from the pegboard into the case. Drag empty space to rotate, right-drag to pan, scroll to zoom.'}
+          : 'Drag parts from the pegboard into the case. Click the installed PSU or SSD to get its cables. Drag empty space to rotate, right-drag to pan, scroll to zoom.'}
       </p>
       <dialog ref={dialog} onCancel={e => e.preventDefault()}>
         {result && (

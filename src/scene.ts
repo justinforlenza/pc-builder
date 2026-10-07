@@ -1,9 +1,21 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { PARTS, SLOTS, isSlotOpen, type PartId, type PlaceEvent, type SlotId } from './grade.ts'
-import { buildCase, buildPartMesh, v, GPU_POWER_OFFSET, PSU_CABLE_EXIT, REST, SLOT_POS } from './models.ts'
+import { buildCase, buildPartMesh, v, GPU_POWER_OFFSET, PSU_CABLE_EXIT, REST, REST_ROT, SATA_RED, SLOT_POS } from './models.ts'
 
 const SNAP_PX = 70
+const CLICK_PX = 5
+
+/** Cables stay hidden until their installed component is clicked. */
+const CABLE_OWNER: Partial<Record<PartId, PartId>> = {
+  cable24: 'psu', cableEps: 'psu', cablePcie: 'psu', cableSataPower: 'psu',
+  sataDataMb: 'ssd', sataDataDrive: 'ssd',
+}
+const CABLES = Object.keys(CABLE_OWNER) as PartId[]
+const partner = (id: PartId): PartId | null =>
+  id === 'sataDataMb' ? 'sataDataDrive' : id === 'sataDataDrive' ? 'sataDataMb' : null
+/** Both data-cable ends share one tube, keyed 'sataData'. */
+const tubeKey = (id: PartId) => (partner(id) ? 'sataData' : id)
 
 function label(text: string, at: THREE.Vector3, height = 0.24) {
   const c = document.createElement('canvas')
@@ -31,12 +43,16 @@ function buildPart(id: PartId): THREE.Group {
   if (id === 'motherboard') {
     ;['A1', 'A2', 'B1', 'B2'].forEach((t, i) => g.add(label(t, v(0.45 + i * 0.15, 1.58, 0.2), 0.12)))
     g.add(label('PCIe x16 #1', v(0.15, -0.65, 0.2), 0.12), label('PCIe x16 #2', v(0.15, -1.3, 0.2), 0.12))
+    for (let i = 0; i < 4; i++) g.add(label(`SATA${i + 1}`, v(1.24, -0.65 - i * 0.14, 0.2), 0.1))
   }
+  if (REST_ROT[id]) g.rotation.copy(REST_ROT[id])
+  // Label above the part as it hangs on the pegboard (worldToLocal undoes any rest rotation).
   const b = new THREE.Box3().setFromObject(g)
-  g.userData.label = label(PARTS[id].name, v((b.min.x + b.max.x) / 2, b.max.y + 0.15, b.max.z + 0.1))
+  g.userData.label = label(PARTS[id].name, g.worldToLocal(v((b.min.x + b.max.x) / 2, b.max.y + 0.15, b.max.z + 0.1)))
   g.add(g.userData.label)
   g.userData.part = id
   g.position.copy(REST[id])
+  g.visible = !CABLE_OWNER[id]
   return g
 }
 
@@ -59,6 +75,42 @@ export function createScene(canvas: HTMLCanvasElement, onPlace: (part: PartId, s
   const parts = new Map((Object.keys(PARTS) as PartId[]).map(id => [id, buildPart(id)]))
   parts.forEach(p => scene.add(p))
   const log: PlaceEvent[] = []
+  const isPlaced = (id: PartId) => log.some(l => l.part === id)
+
+  // Visual-only cable runs: PSU cables from the modular panel, the SATA data cable between its two ends.
+  const tubes = new Map<string, THREE.Mesh>()
+  const updateTube = (key: string) => {
+    const old = tubes.get(key)
+    if (old) { scene.remove(old); old.geometry.dispose() }
+    tubes.delete(key)
+    const z = (p: THREE.Vector3, dz: number) => p.clone().add(v(0, 0, dz))
+    let pts: THREE.Vector3[]
+    if (key === 'sataData') {
+      const a = parts.get('sataDataMb')!, b = parts.get('sataDataDrive')!
+      if (!a.visible || !b.visible) return
+      pts = [z(a.position, 0.15), z(a.position, 0.5), z(b.position, 0.5), z(b.position, 0.15)]
+    } else {
+      const c = parts.get(key as PartId)!
+      if (!c.visible) return
+      const from = parts.get('psu')!.position.clone().add(PSU_CABLE_EXIT)
+      pts = [from, from.clone().add(v(0.3, 0.3, 0.6)), z(c.position, 0.6), z(c.position, 0.15)]
+    }
+    const color = key === 'sataData' ? SATA_RED : 0x111111
+    const m = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 32, 0.04, 8), new THREE.MeshStandardMaterial({ color }))
+    tubes.set(key, m)
+    scene.add(m)
+  }
+
+  /** Show the loose cables of `owner` (or none). A data-cable end stays out while its other end is plugged in. */
+  const reveal = (owner: PartId | null) => {
+    for (const id of CABLES) {
+      if (isPlaced(id)) continue
+      const p = partner(id)
+      parts.get(id)!.visible = CABLE_OWNER[id] === owner || (p !== null && isPlaced(p))
+      parts.get(id)!.position.copy(REST[id])
+    }
+    new Set(CABLES.map(tubeKey)).forEach(updateTube)
+  }
 
   const slotPos = (s: SlotId) =>
     s === 'pciePower' ? parts.get('gpu')!.position.clone().add(GPU_POWER_OFFSET) : SLOT_POS[s]
@@ -85,6 +137,7 @@ export function createScene(canvas: HTMLCanvasElement, onPlace: (part: PartId, s
   const hit = new THREE.Vector3()
   let drag: { id: PartId; group: THREE.Group; candidates: SlotId[] } | null = null
   let nearest: SlotId | null = null
+  let downAt: { x: number; y: number } | null = null
 
   const toNdc = (e: PointerEvent) => {
     const r = canvas.getBoundingClientRect()
@@ -99,8 +152,9 @@ export function createScene(canvas: HTMLCanvasElement, onPlace: (part: PartId, s
   }
 
   const onDown = (e: PointerEvent) => {
+    downAt = { x: e.clientX, y: e.clientY }
     toNdc(e)
-    const loose = [...parts.values()].filter(g => !log.some(l => l.part === g.userData.part))
+    const loose = [...parts.values()].filter(g => g.visible && !isPlaced(g.userData.part))
     let o: THREE.Object3D | null = ray.intersectObjects(loose, true)[0]?.object ?? null
     while (o && !o.userData.part) o = o.parent
     if (!o) return
@@ -121,6 +175,7 @@ export function createScene(canvas: HTMLCanvasElement, onPlace: (part: PartId, s
     if (!drag) return
     toNdc(e)
     if (ray.ray.intersectPlane(plane, hit)) drag.group.position.copy(hit).add(grab)
+    if (CABLE_OWNER[drag.id]) updateTube(tubeKey(drag.id))
     nearest = null
     let best = SNAP_PX
     for (const s of drag.candidates) {
@@ -130,29 +185,38 @@ export function createScene(canvas: HTMLCanvasElement, onPlace: (part: PartId, s
     drag.candidates.forEach(s => (markers.get(s)!.material = s === nearest ? hotMat : markerMat))
   }
 
-  const onUp = () => {
-    if (!drag) return
+  // A click (no drag) on an installed PSU or SSD shows its cables; a click anywhere else hides them.
+  const onClick = (e: PointerEvent) => {
+    toNdc(e)
+    const owners = (['psu', 'ssd'] as PartId[]).filter(isPlaced).map(id => parts.get(id)!)
+    let o: THREE.Object3D | null = ray.intersectObjects(owners, true)[0]?.object ?? null
+    while (o && !o.userData.part) o = o.parent
+    reveal(o ? o.userData.part : null)
+  }
+
+  const onUp = (e: PointerEvent) => {
+    const wasClick = e.type === 'pointerup' && downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) < CLICK_PX
+    downAt = null
+    if (!drag) {
+      if (wasClick) onClick(e)
+      return
+    }
     const { id, group } = drag
     markers.forEach(m => (m.visible = false))
     if (nearest) {
       group.position.copy(slotPos(nearest))
+      group.rotation.set(0, 0, 0)
       group.userData.label.visible = false
       log.push({ part: id, slot: nearest, t: 0 })
-      if (PARTS[id].kind.startsWith('cable')) scene.add(cableTube(group.position))
       onPlace(id, nearest)
     } else {
       group.position.copy(REST[id])
+      if (REST_ROT[id]) group.rotation.copy(REST_ROT[id])
     }
+    if (CABLE_OWNER[id]) updateTube(tubeKey(id))
     drag = null
     nearest = null
     controls.enabled = true
-  }
-
-  // Visual-only cable run from the PSU's modular panel to the plug.
-  const cableTube = (to: THREE.Vector3) => {
-    const from = parts.get('psu')!.position.clone().add(PSU_CABLE_EXIT)
-    const curve = new THREE.CatmullRomCurve3([from, from.clone().add(v(0.3, 0.3, 0.6)), to.clone().add(v(0, 0, 0.6)), to.clone().add(v(0, 0, 0.1))])
-    return new THREE.Mesh(new THREE.TubeGeometry(curve, 32, 0.04, 8), new THREE.MeshStandardMaterial({ color: 0x111111 }))
   }
 
   canvas.addEventListener('pointerdown', onDown, { capture: true }) // before OrbitControls sees it

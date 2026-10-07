@@ -43,6 +43,9 @@ There are three layers, and data flows one way: scene → `onPlace` → app stat
   - Holds the renderer, OrbitControls, labels (canvas sprites, never raycast), pointer drag on a camera-facing plane, and snapping to the nearest open, compatible slot within `SNAP_PX` in screen space.
   - It keeps its own placement log for `isSlotOpen` and reports each placement through `onPlace`.
   - The `pointerdown` listener is registered in the capture phase so it runs before OrbitControls.
+  - **Cables start hidden.** `CABLE_OWNER` maps each cable to the component that reveals it (`psu` or `ssd`). A click (pointer up within `CLICK_PX` of pointer down, with no drag) on that component, once it's installed, calls `reveal()`. A click anywhere else hides the loose cables.
+  - Revealed cables wait at their `REST` spot in front of the case. A cable's run is drawn by `updateTube`: PSU cables run from `PSU_CABLE_EXIT`, and the two SATA data ends share one tube between them. A data end stays visible while its other end is plugged in.
+  - Parts listed in `REST_ROT` (the SSD) hang rotated on the pegboard and are reset to no rotation when they snap into place.
 - **`src/main.tsx`: Preact HUD.**
   - Shows the timer, the "Finish build" button and the results `<dialog>`.
   - Adds timestamps to the event log, then calls `grade()`.
