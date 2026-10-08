@@ -10,6 +10,7 @@ export const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
 const BOARD = v(-0.6, 0.6, 0.12) // motherboard back face, sitting on 0.12-tall standoffs
 const onBoard = (x: number, y: number, z = 0.06) => BOARD.clone().add(v(x, y, z))
 const SOCKET = onBoard(-0.5, 0.7)
+const DRIVE_BAY = v(0.97, -2.07, 1.05) // top bay of the floor drive cage; SSD origin = center of its underside
 
 export const SLOT_POS: Record<Exclude<SlotId, 'pciePower'>, THREE.Vector3> = {
   standoffs: BOARD.clone().setZ(0),
@@ -18,29 +19,63 @@ export const SLOT_POS: Record<Exclude<SlotId, 'pciePower'>, THREE.Vector3> = {
   paste: SOCKET.clone().add(v(0, 0, 0.08)),
   cooler: SOCKET.clone().add(v(0, 0, 0.09)),
   dimmA1: onBoard(0.45, 0.7), dimmA2: onBoard(0.6, 0.7), dimmB1: onBoard(0.75, 0.7), dimmB2: onBoard(0.9, 0.7),
-  m2: onBoard(-0.5, -0.95),
+  m2: onBoard(-0.5, -0.15, 0.09), // above the top x16 slot, so the GPU never covers it; drive sits 0.03 off the board
   pcie1: onBoard(-0.78, -0.65), pcie2: onBoard(-0.78, -1.3),
   psu: v(-1.45, -2.05, 1),
   atx24: onBoard(1.5, 0.45),
   eps8: onBoard(-1, 1.48),
+  sata1: onBoard(1.5, -0.65, 0.13), sata2: onBoard(1.5, -0.79, 0.13), sata3: onBoard(1.5, -0.93, 0.13), sata4: onBoard(1.5, -1.07, 0.13),
+  driveBay: DRIVE_BAY,
+  ssdData: DRIVE_BAY.clone().add(v(-0.22, 0.035, 0.525)),
+  sataPower: DRIVE_BAY.clone().add(v(0.1, 0.035, 0.525)),
 }
 /** GPU power socket relative to the GPU's slot (the GPU can sit in either x16 slot). */
 export const GPU_POWER_OFFSET = v(1.3, -0.05, 1.15)
 /** Where cables leave the PSU's modular panel, relative to the PSU. */
 export const PSU_CABLE_EXIT = v(0.82, 0.15, 0)
 
-// Where each part hangs on the pegboard before it's installed.
-export const REST: Record<PartId, THREE.Vector3> = {
-  motherboard: v(5, 1.1, 0.05), standoffs: v(5, -2.1, 0.05),
-  cooler: v(7.6, 1.6, 0.05), gpu: v(10, 2.4, 0.05), psu: v(10.6, 0.7, 0.8),
-  cpu: v(7.4, 0.1, 0.05), paste: v(8.6, 0.1, 0.05), m2: v(7.6, -0.9, 0.05),
-  ram1: v(9.4, -1.4, 0.05), ram2: v(10.6, -1.4, 0.05),
-  cable24: v(7.4, -3, 0.05), cableEps: v(9.5, -3, 0.05), cablePcie: v(11.5, -3, 0.05),
+// Workspace: the case stands on a desk; parts lie on an anti-static mat beside it.
+export const DESK_TOP = -2.72 // the case's feet rest here
+const MAT = { x0: 3, x1: 12.6, z0: -0.9, z1: 5.7, thick: 0.03 }
+const MAT_TOP = DESK_TOP + MAT.thick
+
+/** Where each part lies on the mat (x, z); its height is derived so it rests on the mat surface. */
+const MAT_SPOT: Partial<Record<PartId, [number, number]>> = {
+  motherboard: [5, 1], standoffs: [5, 4.1],
+  cooler: [7.3, 1.6], gpu: [8.9, -0.5], psu: [11.5, 0.3],
+  ram1: [9.2, 1.7], ram2: [10.8, 1.7],
+  cpu: [7.8, 3.2], paste: [8.9, 3.2], m2: [10.1, 3.2], ssd: [11.6, 3.3],
+}
+/** Cables aren't on the mat: they appear here, in front of the case, when their installed component is clicked. */
+const CABLE_SPOT: Partial<Record<PartId, THREE.Vector3>> = {
+  cable24: v(-1.5, -0.8, 2.5), cableEps: v(0.1, -0.8, 2.5), cablePcie: v(-1.5, -1.6, 2.5), cableSataPower: v(0.1, -1.6, 2.5),
+  sataDataMb: v(1, -0.9, 2.5), sataDataDrive: v(1, -1.6, 2.5),
+}
+/** How a part lies on the mat. Most lie face-up; the GPU, PSU and SSD already rest flat as modelled. */
+const FACE_UP = new THREE.Euler(-Math.PI / 2, 0, 0)
+const MAT_ROT: Partial<Record<PartId, THREE.Euler>> = {
+  ram1: new THREE.Euler(0, 0, Math.PI / 2), ram2: new THREE.Euler(0, 0, Math.PI / 2),
+  gpu: new THREE.Euler(), psu: new THREE.Euler(), ssd: new THREE.Euler(),
+}
+
+/** Puts a freshly built part where it waits before install (mat or cable spot) and returns that pose. */
+export function placeAtRest(id: PartId, g: THREE.Group) {
+  const cable = CABLE_SPOT[id]
+  if (cable) g.position.copy(cable)
+  else {
+    g.rotation.copy(MAT_ROT[id] ?? FACE_UP)
+    g.position.set(0, 0, 0)
+    const minY = new THREE.Box3().setFromObject(g).min.y
+    const [x, z] = MAT_SPOT[id]!
+    g.position.set(x, MAT_TOP - minY, z)
+  }
+  return { position: g.position.clone(), rotation: g.rotation.clone() }
 }
 
 // Palette
 const PCB = 0x1f3d2b, BLACK = 0x161616, DARK = 0x2a2a2e, METAL = 0xa8acb2, ALU = 0xc9ccd1,
   GOLD = 0xd4af37, COPPER = 0xb87333, WHITE = 0xe8e8e8, CASE = 0x3a3f4b
+export const SATA_RED = 0xc62828
 
 function box(w: number, h: number, d: number, color: number, at = v(0, 0, d / 2), metal = 0) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color, metalness: metal, roughness: 0.6 }))
@@ -111,6 +146,33 @@ function panel(x0: number, y0: number, x1: number, y1: number, depth: number,
     new THREE.MeshStandardMaterial({ color: CASE, metalness: 0.3, roughness: 0.7 }))
 }
 
+/** Desk, anti-static mat, and the mat's coiled ground cord clipped to the case. */
+export function buildDesk(): THREE.Group {
+  const desk = box(18, 0.15, 9, 0x8b6a4a, v(4.5, DESK_TOP - 0.075, 2.2))
+  const mx = (MAT.x0 + MAT.x1) / 2, mz = (MAT.z0 + MAT.z1) / 2, mw = MAT.x1 - MAT.x0, md = MAT.z1 - MAT.z0
+  const mat = group(
+    box(mw, 0.01, md, BLACK, v(mx, DESK_TOP + 0.005, mz)), // conductive under-layer
+    box(mw - 0.02, MAT.thick - 0.01, md - 0.02, 0xe7e4d6, v(mx, DESK_TOP + 0.01 + (MAT.thick - 0.01) / 2, mz)),
+  )
+  const BLUE = 0x7ec8e3
+  const snap = v(MAT.x0 + 0.35, MAT_TOP, MAT.z1 - 0.35)
+  const clip = v(2.42, -2.25, 1.9) // alligator clip on the case's front edge
+  // Coiled cord: a helix wound around a path from the snap to the clip.
+  const path = new THREE.CatmullRomCurve3([snap.clone().add(v(0, 0.04, 0)), v(2.9, DESK_TOP + 0.08, 4.6), v(2.7, DESK_TOP + 0.08, 3), clip.clone().add(v(0.05, -0.15, 0))])
+  const frames = path.computeFrenetFrames(400, false)
+  const coil = Array.from({ length: 401 }, (_, i) => {
+    const a = (i / 400) * Math.PI * 2 * 45, r = i < 20 || i > 380 ? 0 : 0.05
+    return path.getPointAt(i / 400).add(frames.normals[i].clone().multiplyScalar(Math.cos(a) * r)).add(frames.binormals[i].clone().multiplyScalar(Math.sin(a) * r))
+  })
+  const cord = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(coil), 1600, 0.012, 6), new THREE.MeshStandardMaterial({ color: BLUE }))
+  return group(
+    desk, mat, cord,
+    cyl(0.07, 0.04, BLUE, snap.clone().add(v(0, 0.02, 0)), 'y'), // snap button
+    box(0.05, 0.12, 0.05, BLUE, clip.clone().add(v(0.05, -0.12, 0))), // plug
+    box(0.03, 0.18, 0.05, METAL, clip.clone().add(v(0.02, 0, 0)), 0.8), box(0.03, 0.18, 0.05, METAL, clip.clone().add(v(-0.02, 0, 0)), 0.8), // jaws
+  )
+}
+
 export function buildCase(): THREE.Group {
   // Motherboard tray with a CPU-backplate cutout and cable-routing slots.
   const tray = panel(-2.3, -2.5, 2.3, 2.5, 0.1, [
@@ -135,10 +197,14 @@ export function buildCase(): THREE.Group {
   rearFan.rotation.y = Math.PI / 2
   rearFan.position.set(-2.16, 1.35, 1.35)
 
+  // Two-bay 2.5" drive cage on the floor, beside the PSU.
+  const cage = [0.49, 1.45].map(x => box(0.04, 0.75, 1.2, CASE, v(x, -2.125, 1)))
+  for (const y of [-2.08, -2.33]) cage.push(box(1, 0.02, 1.2, CASE, v(0.97, y, 1)))
+
   const feet = [-1.9, 1.9].flatMap(x => [0.3, 1.9].map(z => box(0.4, 0.12, 0.25, BLACK, v(x, -2.66, z))))
 
   return group(
-    tray, rear, rearFan, ...feet,
+    tray, rear, rearFan, ...cage, ...feet,
     box(4.6, 0.1, 2.2, CASE, v(0, 2.55, 1.1)), box(4.6, 0.1, 2.2, CASE, v(0, -2.55, 1.1)),
     box(0.1, 5.2, 2.2, CASE, v(2.35, 0, 1.1)),
   )
@@ -193,9 +259,15 @@ function motherboard(g: THREE.Group) {
   // PCIe x1 slot between them.
   on(0.26, 0.075, 0.07, BLACK, -1.1, -0.98)
 
-  // M.2 socket and its standoff.
-  on(0.06, 0.2, 0.05, BLACK, -0.97, -0.95)
-  g.add(cyl(0.025, 0.04, GOLD, B(-0.04, -0.95, 0.08)))
+  // M.2 (M-key, 2280): keyed edge socket with gold contacts, standoff at 80 mm,
+  // spare screw holes for 2242/2260 drives, silkscreen outline.
+  on(0.07, 0.155, 0.06, BLACK, -0.985, -0.1875)
+  on(0.07, 0.06, 0.06, BLACK, -0.985, -0.065) // the gap between the two blocks is the M key
+  on(0.006, 0.2, 0.02, GOLD, -0.948, -0.15, 0.6)
+  g.add(cyl(0.03, 0.03, GOLD, B(-0.05, -0.15, 0.075)))
+  for (const x of [-0.53, -0.35]) g.add(cyl(0.03, 0.004, METAL, B(x, -0.15, 0.062)))
+  for (const [x, y, w, h] of [[-0.5, -0.01, 1, 0.008], [-0.5, -0.29, 1, 0.008], [-1, -0.15, 0.008, 0.28], [0, -0.15, 0.008, 0.28]] as const)
+    on(w, h, 0.002, WHITE, x, y)
 
   // Chipset heatsink, CMOS battery, SATA ports, headers, capacitors.
   on(0.5, 0.5, 0.06, DARK, 0.8, -1.0, 0.5)
@@ -285,16 +357,37 @@ function cpu(g: THREE.Group) {
 }
 
 function m2(g: THREE.Group) {
+  // 2280 drive: origin = center of the underside; gold fingers (notched for the M key) at -x, screw at +x.
   g.add(
-    box(0.9, 0.2, 0.015, 0x0d1b4c, v(0, 0, 0.0075)),
-    box(0.05, 0.18, 0.016, GOLD, v(-0.43, 0, 0.008), 0.6),
+    box(0.9, 0.23, 0.015, 0x0d1b4c, v(0, 0, 0.0075)),
+    box(0.05, 0.155, 0.016, GOLD, v(-0.425, -0.0375, 0.008), 0.6), box(0.05, 0.06, 0.016, GOLD, v(-0.425, 0.085, 0.008), 0.6),
+    cyl(0.035, 0.012, METAL, v(0.44, 0, 0.021)), // mounting screw
     box(0.14, 0.14, 0.02, BLACK, v(-0.25, 0, 0.025)), // controller
     box(0.2, 0.15, 0.02, BLACK, v(0.02, 0, 0.025)), box(0.2, 0.15, 0.02, BLACK, v(0.27, 0, 0.025)), // NAND
   )
 }
 
-function plug(g: THREE.Group, w: number, h: number) {
-  g.add(box(w, h, 0.15, BLACK), box(Math.min(w, h) * 0.6, 0.04, 0.08, BLACK, v(0, h / 2 + 0.02, 0.1)))
+function plug(g: THREE.Group, w: number, h: number, color = BLACK) {
+  g.add(box(w, h, 0.15, color), box(Math.min(w, h) * 0.6, 0.04, 0.08, color, v(0, h / 2 + 0.02, 0.1)))
+}
+
+function ssd(g: THREE.Group) {
+  // 2.5" drive lying flat. Origin = center of the underside; SATA connectors on the +z edge.
+  g.add(
+    box(0.73, 0.07, 1.05, DARK, v(0, 0.035, 0), 0.6),
+    box(0.6, 0.004, 0.75, 0x3949ab, v(0, 0.072, -0.05)), // label
+    box(0.13, 0.05, 0.03, BLACK, v(-0.22, 0.035, 0.51)), // data connector
+    box(0.22, 0.05, 0.03, BLACK, v(0.1, 0.035, 0.51)), // power connector
+  )
+  for (const x of [-0.366, 0.366]) for (const z of [-0.3, 0.3]) g.add(cyl(0.015, 0.01, BLACK, v(x, 0.035, z), 'x'))
+}
+
+/** Swap to the part's installed or rest look, for parts that have two (the thermal paste). */
+export function setInstalledLook(g: THREE.Group, installed: boolean) {
+  const looks = g.userData.looks as { rest: THREE.Group; installed: THREE.Group } | undefined
+  if (!looks) return
+  g.remove(looks.rest, looks.installed)
+  g.add(installed ? looks.installed : looks.rest)
 }
 
 export function buildPartMesh(id: PartId): THREE.Group {
@@ -306,7 +399,21 @@ export function buildPartMesh(id: PartId): THREE.Group {
       break
     case 'motherboard': motherboard(g); break
     case 'cpu': cpu(g); break
-    case 'paste': g.add(cyl(0.11, 0.015, 0x9e9e9e, v(0, 0, 0.008))); break
+    case 'paste': {
+      // Two looks: a syringe while on the mat, a spread grey disc once applied to the CPU.
+      const syringe = group(
+        cyl(0.045, 0.42, 0xd8dade, v(0, 0, 0.045), 'x'), // barrel
+        cyl(0.035, 0.4, 0x8a8a8a, v(-0.01, 0, 0.045), 'x'), // paste inside
+        cyl(0.02, 0.08, 0x8a8a8a, v(-0.25, 0, 0.045), 'x'), // nozzle
+        cyl(0.012, 0.14, WHITE, v(0.27, 0, 0.045), 'x'), // plunger rod
+        cyl(0.04, 0.012, WHITE, v(0.345, 0, 0.045), 'x'), // plunger pad
+        box(0.015, 0.16, 0.06, WHITE, v(0.21, 0, 0.045)), // finger flange
+      )
+      const disc = group(cyl(0.11, 0.015, 0x9e9e9e, v(0, 0, 0.008)))
+      g.userData.looks = { rest: syringe, installed: disc }
+      g.add(syringe)
+      break
+    }
     case 'cooler': cooler(g); break
     case 'ram1': case 'ram2': ram(g); break
     case 'm2': m2(g); break
@@ -315,6 +422,9 @@ export function buildPartMesh(id: PartId): THREE.Group {
     case 'cable24': plug(g, 0.12, 0.6); break
     case 'cableEps': plug(g, 0.35, 0.12); break
     case 'cablePcie': plug(g, 0.3, 0.12); break
+    case 'cableSataPower': plug(g, 0.22, 0.05); break
+    case 'sataDataMb': case 'sataDataDrive': plug(g, 0.13, 0.05, SATA_RED); break
+    case 'ssd': ssd(g); break
   }
   return g
 }
