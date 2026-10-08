@@ -50,13 +50,15 @@ There are three layers, and data flows one way: scene → `onChange` / `onBlocke
   - **Cables start hidden.** `CABLE_OWNER` maps each cable to the component that reveals it (`psu` or `ssd`). A click (pointer up within `CLICK_PX` of pointer down, with no drag) on that component, once it's installed, calls `reveal()`. A click anywhere else hides the loose cables.
   - Revealed cables wait at their `CABLE_SPOT` in front of the case. A cable's run is drawn by `updateTube`: PSU cables run from `PSU_CABLE_EXIT`, and the two SATA data ends share one tube between them. A data end stays visible while its other end is plugged in.
 - **`src/main.tsx`: Preact HUD.**
-  - Shows the timer, the "Finish build" button and the results `<dialog>`.
+  - Shows the welcome `<dialog>` on load (instructions, grading summary, options). The timer starts when it closes; reopening it with Help doesn't reset the clock.
+  - Shows the timer, the option toggles, Help, the "Finish build" button and the results `<dialog>`.
+  - The `labels` and `guides` options (both off by default) go to the scene through `setOptions`. Only floating part names are toggled; the motherboard's printed slot labels (A1–B2, PCIe, SATA, M.2) always show. With guides off, parts still snap, but the blue slot dots stay hidden.
   - Adds timestamps to the event log, then calls `grade()`.
   - There's deliberately no parts checklist, because it would reveal forgotten steps.
 
 ## Verifying visual or interaction changes
 
 Unit tests only cover `grade.ts`. To check scene or model changes:
-1. `npm run build && npm run preview`.
+1. `npm run build && npm run preview`. In Playwright, press "Start building" to close the welcome dialog before dragging.
 2. Drive drag-and-drop with Playwright. The headless Chromium is at `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`; launch it with `--use-gl=swiftshader --enable-unsafe-swiftshader`.
 3. Compute screen coordinates by projecting rest poses (build the part with `buildPartMesh`, then call `placeAtRest`) and `SLOT_POS` through a camera that matches the initial one: position (4.6, 6, 14), looking at (4.6, -1.4, 1.6), fov 45.
