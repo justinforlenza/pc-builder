@@ -2,6 +2,8 @@
 
 A 3D PC assembly simulator for students. Drag the core components from the anti-static mat on the desk into the case, press **Finish build**, and get a grade with an explanation of every deduction.
 
+A welcome screen explains the controls and grading, and the timer starts when the student presses Start. Two helpers are off by default and can be turned on from the welcome screen or the top bar: **Part names** (floating labels on the parts) and **Placement guides** (blue dots on the slots a dragged part fits).
+
 It's a static site with no server and no database.
 
 ## Run
@@ -13,7 +15,7 @@ npm test         # grading rule tests
 npm run build    # static site in dist/
 ```
 
-Every push to `main` deploys to GitHub Pages through `.github/workflows/deploy.yml`. The first time, set **Settings → Pages → Source** to **GitHub Actions**.
+Publishing a GitHub release deploys to GitHub Pages through `.github/workflows/deploy.yml` and attaches `pc-builder-scorm.zip` (for an LMS) to the release; the site links to it. The first time, set **Settings → Pages → Source** to **GitHub Actions**, and under **Settings → Environments → github-pages** allow release tags (e.g. `v*`) to deploy.
 
 You can also host `dist/` anywhere static, such as GitHub Pages, Netlify or a school web server. It also works under a subpath or embedded in an LMS page with an `<iframe>`.
 
