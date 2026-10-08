@@ -41,7 +41,7 @@ const MAT_TOP = DESK_TOP + MAT.thick
 
 /** Where each part lies on the mat (x, z); its height is derived so it rests on the mat surface. */
 const MAT_SPOT: Partial<Record<PartId, [number, number]>> = {
-  motherboard: [5, 1], standoffs: [5, 4.1],
+  motherboard: [5, 1], standoffs: [6.6, 3.3],
   cooler: [7.3, 1.6], gpu: [8.9, -0.5], psu: [11.5, 0.3],
   ram1: [9.2, 1.7], ram2: [10.8, 1.7],
   cpu: [7.8, 3.2], paste: [8.9, 3.2], m2: [10.1, 3.2], ssd: [11.6, 3.3],
@@ -95,7 +95,7 @@ function cyl(r: number, h: number, color: number, at: THREE.Vector3, axis: 'x' |
 
 function group(...children: THREE.Object3D[]) {
   const g = new THREE.Group()
-  g.add(...children)
+  if (children.length) g.add(...children) // add() with no arguments logs a warning
   return g
 }
 
@@ -406,10 +406,25 @@ export function setInstalledLook(g: THREE.Group, installed: boolean) {
 export function buildPartMesh(id: PartId): THREE.Group {
   const g = new THREE.Group()
   switch (id) {
-    case 'standoffs':
-      for (const [x, y] of [[-1.4, 1.4], [1.4, 1.4], [-1.4, 0], [1.4, 0], [-1.4, -1.4], [1.4, -1.4]])
-        g.add(cyl(0.06, 0.12, GOLD, v(x, y, 0.06), 'z', 6), cyl(0.025, 0.05, GOLD, v(x, y, 0.145)))
+    case 'standoffs': {
+      // Two looks: a loose pile on the mat, and screwed in at the six motherboard mounting points once installed.
+      const standoff = () => group(cyl(0.06, 0.12, GOLD, v(0, 0, 0.06), 'z', 6), cyl(0.025, 0.05, GOLD, v(0, 0, 0.145)))
+      const installed = group()
+      for (const [x, y] of [[-1.4, 1.4], [1.4, 1.4], [-1.4, 0], [1.4, 0], [-1.4, -1.4], [1.4, -1.4]]) {
+        const s = standoff(); s.position.set(x, y, 0); installed.add(s)
+      }
+      // Pile: each lies on its side (axis in the mat plane) at a fixed jumble of spots and angles; two sit on top.
+      const pile = group()
+      for (const [x, y, z, a] of [[0, 0, 0, 0.3], [0.13, 0.06, 0, 2.1], [-0.1, 0.1, 0, 4], [0.05, -0.13, 0, 1.2], [-0.03, 0.02, 0.1, 5.2], [0.08, -0.03, 0.1, 2.8]]) {
+        const s = standoff()
+        s.rotation.set(Math.PI / 2, 0, 0) // lay it on its side
+        const spin = group(s); spin.rotation.z = a; spin.position.set(x, y, z + 0.06)
+        pile.add(spin)
+      }
+      g.userData.looks = { rest: pile, installed }
+      g.add(pile)
       break
+    }
     case 'motherboard': motherboard(g); break
     case 'cpu': cpu(g); break
     case 'paste': {
