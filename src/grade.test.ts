@@ -12,8 +12,8 @@ const log = (steps: [PartId, SlotId][]): PlaceEvent[] => steps.map(([part, slot]
 const without = (part: PartId) => PERFECT.filter(([p]) => p !== part)
 const MIN = 60_000
 
-test('perfect build scores 100 / A', () => {
-  assert.deepEqual(grade(log(PERFECT), 5 * MIN), { score: 100, letter: 'A', deductions: [] })
+test('perfect build scores 100', () => {
+  assert.deepEqual(grade(log(PERFECT), 5 * MIN), { score: 100, deductions: [] })
 })
 
 test('every step in the perfect build was reachable in that order', () => {
@@ -47,9 +47,8 @@ test('time penalty is per full minute over 8 and capped at 10', () => {
   assert.equal(grade(log(PERFECT), 60 * MIN).score, 90)
 })
 
-test('empty build clamps to 0 / F', () => {
-  assert.deepEqual(grade([], 0).score, 0)
-  assert.equal(grade([], 0).letter, 'F')
+test('empty build clamps to 0', () => {
+  assert.equal(grade([], 0).score, 0)
 })
 
 test('M.2 and SATA SSD together, on any SATA port, is not penalized', () => {

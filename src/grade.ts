@@ -21,7 +21,7 @@ export type SlotId =
 export interface PlaceEvent { part: PartId; slot: SlotId | null; t: number }
 
 export interface Deduction { category: 'Forgotten' | 'Placement' | 'Order' | 'Time'; points: number; message: string }
-export interface GradeResult { score: number; letter: string; deductions: Deduction[] }
+export interface GradeResult { score: number; deductions: Deduction[] }
 
 export const PARTS: Record<PartId, { name: string; kind: Kind }> = {
   standoffs: { name: 'Motherboard standoffs', kind: 'standoffs' },
@@ -104,7 +104,6 @@ export const RULES = {
   timeLimitMin: 8,
   timePerMin: 1,
   timeCap: 10,
-  letters: [[90, 'A'], [80, 'B'], [70, 'C'], [60, 'D'], [0, 'F']] as [number, string][],
 }
 
 /** Replays the log: what is installed now, where, and at which log index it was last placed. */
@@ -174,6 +173,5 @@ export function grade(log: PlaceEvent[], elapsedMs: number): GradeResult {
       message: `Took ${overMin} min over the ${RULES.timeLimitMin} min target.` })
 
   const score = Math.max(0, 100 - deductions.reduce((sum, d) => sum + d.points, 0))
-  const letter = RULES.letters.find(([min]) => score >= min)![1]
-  return { score, letter, deductions }
+  return { score, deductions }
 }

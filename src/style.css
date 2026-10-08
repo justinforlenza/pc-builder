@@ -7,7 +7,7 @@ header {
 }
 h1 { font-size: 1.1rem; margin: 0; flex: 1; }
 .timer { font-variant-numeric: tabular-nums; font-size: 1.1rem; }
-button { font: inherit; padding: 0.4rem 1rem; border: 0; border-radius: 6px; background: #00a3b8; color: #fff; cursor: pointer; }
+button, .button { font: inherit; padding: 0.4rem 1rem; border: 0; border-radius: 6px; background: #00a3b8; color: #fff; cursor: pointer; text-decoration: none; }
 button:disabled { opacity: 0.5; cursor: default; }
 .hint {
   position: fixed; bottom: 0; left: 0; right: 0; margin: 0; padding: 0.5rem 1rem;
@@ -16,11 +16,17 @@ button:disabled { opacity: 0.5; cursor: default; }
 dialog { max-width: 36rem; border: 0; border-radius: 10px; padding: 1.5rem; }
 dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
 dialog h2 { margin-top: 0; }
-.score { font-size: 2rem; font-weight: bold; margin: 0 0 1rem; }
 dialog li { margin-bottom: 0.5rem; }
 button.secondary { background: transparent; border: 1px solid rgba(255, 255, 255, 0.5); }
 .options { display: flex; gap: 1rem; font-size: 0.9rem; }
 .options label { display: flex; align-items: center; gap: 0.3rem; cursor: pointer; }
+.menu { position: relative; }
+.menu summary { list-style: none; }
+.menu summary::-webkit-details-marker { display: none; }
+.menu ul { position: absolute; right: 0; margin: 0.4rem 0 0; padding: 0.3rem; list-style: none; width: 18rem; background: #fff; border-radius: 6px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3); }
+.menu a { display: block; padding: 0.5rem; color: #222; text-decoration: none; border-radius: 4px; }
+.menu a:hover { background: #e6f6f8; }
+.menu strong { display: block; }
 .welcome { max-height: 90vh; overflow: auto; }
 .welcome h3 { margin: 1.2rem 0 0.4rem; }
 .welcome p, .welcome ul { margin: 0.4rem 0; }
