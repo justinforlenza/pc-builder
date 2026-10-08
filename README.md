@@ -2,7 +2,7 @@
 
 A 3D PC assembly simulator for students. Drag the core components from the anti-static mat on the desk into the case, press **Finish build**, and get a grade with an explanation of every deduction.
 
-A welcome screen explains the controls and grading, and the timer starts when the student presses Start. Two helpers are off by default and can be turned on from the welcome screen or the top bar: **Part names** (floating labels on the parts) and **Placement guides** (blue dots on the slots a dragged part fits).
+A welcome screen explains the controls and grading, and the timer starts when the student presses Start. Two helpers are off by default and can be turned on from the welcome screen or the top bar: **Part names** (floating labels on the parts, plus the port names printed on the motherboard) and **Placement guides** (blue dots on the slots a dragged part fits).
 
 It's a static site with no server and no database.
 
@@ -30,7 +30,7 @@ All of the rules are in [`src/grade.ts`](src/grade.ts) and can be edited. Each b
 | Order | RAM after the cooler −5 |
 | Time | −1 per minute over 8 minutes, capped at −10 |
 
-Cables aren't on the mat. Clicking the installed PSU shows its cables, clicking the installed SSD shows the SATA data cable, and clicking anything else hides the loose ones again.
+The PSU's cables aren't on the mat. Clicking the installed PSU shows them, and clicking anything else hides the loose ones again. The CPU (EPS 4+4) and GPU (PCIe 6+2) plugs are shaped differently and stamped "CPU" and "PCIe", like real modular cables. The SATA data cable lies on the mat. Dragging the cable (or either end) brings the whole cable along; once that end is plugged into the SSD or a motherboard SATA port, the free end waits beside it to be plugged into the other.
 
 Students can drag an installed part back out, to remove it or move it to another slot. Anything attached to it or covering it has to come off first: for example, the cooler before the CPU, or the cables before the PSU. A skipped step therefore means taking parts back out. The standoff holes are covered once the motherboard is in, and the CPU socket (and its paste) once the cooler is on, even if the cooler went on before the CPU by mistake.
 

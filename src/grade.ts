@@ -4,12 +4,12 @@
 export type Kind =
   | 'standoffs' | 'motherboard' | 'cpu' | 'paste' | 'cooler' | 'ram'
   | 'm2' | 'gpu' | 'psu' | 'cable24' | 'cableEps' | 'cablePcie'
-  | 'ssd' | 'cableSataPower' | 'sataDataMb' | 'sataDataDrive'
+  | 'ssd' | 'cableSataPower' | 'sataData'
 
 export type PartId =
   | 'standoffs' | 'motherboard' | 'cpu' | 'paste' | 'cooler' | 'ram1' | 'ram2'
   | 'm2' | 'gpu' | 'psu' | 'cable24' | 'cableEps' | 'cablePcie'
-  | 'ssd' | 'cableSataPower' | 'sataDataMb' | 'sataDataDrive'
+  | 'ssd' | 'cableSataPower' | 'sataData1' | 'sataData2'
 
 export type SlotId =
   | 'standoffs' | 'motherboard' | 'socket' | 'paste' | 'cooler'
@@ -39,8 +39,9 @@ export const PARTS: Record<PartId, { name: string; kind: Kind }> = {
   cablePcie: { name: 'PCIe power cable', kind: 'cablePcie' },
   ssd: { name: '2.5" SATA SSD', kind: 'ssd' },
   cableSataPower: { name: 'SATA power cable', kind: 'cableSataPower' },
-  sataDataMb: { name: 'SATA data cable (motherboard end)', kind: 'sataDataMb' },
-  sataDataDrive: { name: 'SATA data cable (drive end)', kind: 'sataDataDrive' },
+  // The two (identical) ends of one SATA data cable: either end fits the SSD or a motherboard port.
+  sataData1: { name: 'SATA data cable', kind: 'sataData' },
+  sataData2: { name: 'SATA data cable', kind: 'sataData' },
 }
 
 /**
@@ -67,11 +68,11 @@ export const SLOTS: Record<SlotId, { name: string; accepts: Kind; requires?: Kin
   pciePower: { name: 'GPU power connector', accepts: 'cablePcie', requires: ['gpu', 'psu'] },
   driveBay: { name: 'drive cage', accepts: 'ssd' },
   sataPower: { name: 'SSD power connector', accepts: 'cableSataPower', requires: ['ssd', 'psu'] },
-  ssdData: { name: 'SSD data connector', accepts: 'sataDataDrive', requires: ['ssd'] },
-  sata1: { name: 'SATA port 1', accepts: 'sataDataMb', requires: ['motherboard'] },
-  sata2: { name: 'SATA port 2', accepts: 'sataDataMb', requires: ['motherboard'] },
-  sata3: { name: 'SATA port 3', accepts: 'sataDataMb', requires: ['motherboard'] },
-  sata4: { name: 'SATA port 4', accepts: 'sataDataMb', requires: ['motherboard'] },
+  ssdData: { name: 'SSD data connector', accepts: 'sataData', requires: ['ssd'] },
+  sata1: { name: 'SATA port 1', accepts: 'sataData', requires: ['motherboard'] },
+  sata2: { name: 'SATA port 2', accepts: 'sataData', requires: ['motherboard'] },
+  sata3: { name: 'SATA port 3', accepts: 'sataData', requires: ['motherboard'] },
+  sata4: { name: 'SATA port 4', accepts: 'sataData', requires: ['motherboard'] },
 }
 
 /** Teacher-editable grading rules. Points are deducted from 100. */
@@ -83,10 +84,13 @@ export const RULES = {
     cableEps: [10, '8-pin EPS cable not connected: the CPU gets no power.'],
     cablePcie: [10, 'PCIe power cable not connected: the graphics card gets no power.'],
     cableSataPower: [10, 'SATA power cable not connected: the SSD gets no power.'],
-    sataDataMb: [10, 'SATA data cable not plugged into the motherboard: the SSD will not be detected.'],
-    sataDataDrive: [10, 'SATA data cable not plugged into the SSD: it will not be detected.'],
   } as Partial<Record<PartId, [number, string]>>,
   missingDefault: 15,
+  /** Graded by what's plugged into these slots rather than by part (for cables whose ends are interchangeable). */
+  connections: [
+    { slots: ['sata1', 'sata2', 'sata3', 'sata4'], points: 10, message: 'SATA data cable not plugged into the motherboard: the SSD will not be detected.' },
+    { slots: ['ssdData'], points: 10, message: 'SATA data cable not plugged into the SSD: it will not be detected.' },
+  ] as { slots: SlotId[]; points: number; message: string }[],
   placement: [
     { parts: ['ram1', 'ram2'], slots: ['dimmA2', 'dimmB2'], points: 5,
       message: 'RAM should go in slots A2 and B2 so it runs in dual-channel mode (check the motherboard manual).' },
@@ -141,10 +145,15 @@ export function grade(log: PlaceEvent[], elapsedMs: number): GradeResult {
   const deductions: Deduction[] = []
   const at = installed(log) // grade the finished build; fixed mistakes only cost time
 
+  const byConnection = new Set(RULES.connections.flatMap(c => c.slots.map(s => SLOTS[s].accepts)))
+  const used = new Set([...at.values()].map(x => x.slot))
   for (const part of Object.keys(PARTS) as PartId[]) {
-    if (at.has(part)) continue
+    if (at.has(part) || byConnection.has(PARTS[part].kind)) continue
     const [points, message] = RULES.missing[part] ?? [RULES.missingDefault, `${PARTS[part].name} is not installed.`]
     deductions.push({ category: 'Forgotten', points, message })
+  }
+  for (const c of RULES.connections) {
+    if (!c.slots.some(s => used.has(s))) deductions.push({ category: 'Forgotten', points: c.points, message: c.message })
   }
 
   for (const r of RULES.placement) {

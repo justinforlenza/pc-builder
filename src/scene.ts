@@ -1,22 +1,41 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { PARTS, SLOTS, installed, isSlotOpen, removalBlockers, type PartId, type PlaceEvent, type SlotId } from './grade.ts'
-import { buildCase, buildDesk, buildPartMesh, placeAtRest, setInstalledLook, v, GPU_POWER_OFFSET, PSU_CABLE_EXIT, SATA_RED, SLOT_POS } from './models.ts'
+import { buildCase, buildDesk, buildPartMesh, placeAtRest, setInstalledLook, v, GPU_POWER_OFFSET, PSU_CABLE_EXIT, SATA_PARK, SATA_RED, SLOT_POS } from './models.ts'
 
 const SNAP_PX = 70
 const CLICK_PX = 5
 const HOVER_GLOW = 0x1e4a66
 
-/** Cables stay hidden until their installed component is clicked. */
+/** PSU cables stay hidden until the installed PSU is clicked. */
 const CABLE_OWNER: Partial<Record<PartId, PartId>> = {
   cable24: 'psu', cableEps: 'psu', cablePcie: 'psu', cableSataPower: 'psu',
-  sataDataMb: 'ssd', sataDataDrive: 'ssd',
 }
 const CABLES = Object.keys(CABLE_OWNER) as PartId[]
-const partner = (id: PartId): PartId | null =>
-  id === 'sataDataMb' ? 'sataDataDrive' : id === 'sataDataDrive' ? 'sataDataMb' : null
-/** Both data-cable ends share one tube, keyed 'sataData'. */
-const tubeKey = (id: PartId) => (partner(id) ? 'sataData' : id)
+/** The SATA data cable lies on the mat; its two ends are separate parts that share one tube, keyed 'sataData'. */
+const isDataEnd = (id: PartId) => id === 'sataData1' || id === 'sataData2'
+const hasTube = (id: PartId) => !!CABLE_OWNER[id] || isDataEnd(id)
+const tubeKey = (id: PartId) => (isDataEnd(id) ? 'sataData' : id)
+const otherEnd = (id: PartId): PartId => (id === 'sataData1' ? 'sataData2' : 'sataData1')
+const inCase = (p: THREE.Vector3) => Math.abs(p.x) < 2.35 && p.z < 2.2
+/** Text stamped on a plug's top face, like the "CPU" / "PCI-E" moulding on real modular cables. Always shown. */
+const STAMP: Partial<Record<PartId, string>> = { cableEps: 'CPU', cablePcie: 'PCIe' }
+
+function stamp(text: string, w: number) {
+  const c = document.createElement('canvas')
+  c.width = 256; c.height = 48
+  const ctx = c.getContext('2d')!
+  ctx.font = 'bold 40px system-ui, sans-serif'
+  ctx.fillStyle = '#d9d9d9'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(text, 128, 26)
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w * 48 / 256), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true }))
+  m.rotation.x = -Math.PI / 2 // lie on the top (+y) face, reading toward the mating end
+  m.position.set(0, 0.0605, 0.105) // behind the latch, which sits at the mating end
+  m.raycast = () => {}
+  return m
+}
 
 function label(text: string, at: THREE.Vector3, height = 0.24) {
   const c = document.createElement('canvas')
@@ -41,12 +60,16 @@ function label(text: string, at: THREE.Vector3, height = 0.24) {
 
 function buildPart(id: PartId): THREE.Group {
   const g = buildPartMesh(id)
+  g.userData.portLabels = [] as THREE.Sprite[] // printed slot names on the board, toggled with part names
   if (id === 'motherboard') {
-    ;['A1', 'A2', 'B1', 'B2'].forEach((t, i) => g.add(label(t, v(0.45 + i * 0.15, 1.58, 0.2), 0.12)))
-    g.add(label('PCIe x16 #1', v(0.15, -0.65, 0.2), 0.12), label('PCIe x16 #2', v(0.15, -1.3, 0.2), 0.12))
-    g.add(label('M.2', v(-1.2, -0.15, 0.2), 0.1))
-    for (let i = 0; i < 4; i++) g.add(label(`SATA${i + 1}`, v(1.24, -0.65 - i * 0.14, 0.2), 0.1))
+    const port = (t: string, at: THREE.Vector3, h: number) => { const l = label(t, at, h); g.userData.portLabels.push(l); g.add(l) }
+    ;['A1', 'A2', 'B1', 'B2'].forEach((t, i) => port(t, v(0.45 + i * 0.15, 1.58, 0.2), 0.12))
+    port('PCIe x16 #1', v(0.15, -0.65, 0.2), 0.12)
+    port('PCIe x16 #2', v(0.15, -1.3, 0.2), 0.12)
+    port('M.2', v(-1.2, -0.15, 0.2), 0.1)
+    for (let i = 0; i < 4; i++) port(`SATA${i + 1}`, v(1.24, -0.65 - i * 0.14, 0.2), 0.1)
   }
+  if (STAMP[id]) g.add(stamp(STAMP[id], 0.33))
   g.userData.rest = placeAtRest(id, g)
   // Label above the part where it waits (worldToLocal undoes the rest pose).
   const b = new THREE.Box3().setFromObject(g)
@@ -86,7 +109,11 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
   parts.forEach(p => scene.add(p))
   const log: PlaceEvent[] = []
   const isPlaced = (id: PartId) => installed(log).has(id)
-  const syncLabels = () => parts.forEach((g, id) => (g.userData.label.visible = options.labels && !isPlaced(id)))
+  const syncLabels = () => parts.forEach((g, id) => {
+    // One name for the SATA data cable: on end 2 only once end 1 is plugged in.
+    g.userData.label.visible = options.labels && !isPlaced(id) && !(id === 'sataData2' && !isPlaced('sataData1'))
+    for (const l of g.userData.portLabels) l.visible = options.labels
+  })
   syncLabels()
 
   // Visual-only cable runs: PSU cables from the modular panel, the SATA data cable between its two ends.
@@ -98,9 +125,11 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
     const z = (p: THREE.Vector3, dz: number) => p.clone().add(v(0, 0, dz))
     let pts: THREE.Vector3[]
     if (key === 'sataData') {
-      const a = parts.get('sataDataMb')!, b = parts.get('sataDataDrive')!
-      if (!a.visible || !b.visible) return
-      pts = [z(a.position, 0.15), z(a.position, 0.5), z(b.position, 0.5), z(b.position, 0.15)]
+      // An end inside the case leaves through the open side, so the run never passes through a wall.
+      const a = parts.get('sataData1')!.position, b = parts.get('sataData2')!.position
+      const exits = inCase(a) !== inCase(b) // one end in the case, the other outside it
+      const out = (p: THREE.Vector3) => z(p, 0.5).setZ(exits && inCase(p) ? Math.max(p.z + 0.5, 2.6) : p.z + 0.5)
+      pts = [z(a, 0.15), out(a), out(b), z(b, 0.15)]
     } else {
       const c = parts.get(key as PartId)!
       if (!c.visible) return
@@ -119,12 +148,12 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
     revealed = owner
     for (const id of CABLES) {
       if (isPlaced(id)) continue
-      const p = partner(id)
-      parts.get(id)!.visible = (CABLE_OWNER[id] === owner && isPlaced(owner!)) || (p !== null && isPlaced(p))
+      parts.get(id)!.visible = CABLE_OWNER[id] === owner && isPlaced(owner!)
       parts.get(id)!.position.copy(parts.get(id)!.userData.rest.position)
     }
     new Set(CABLES.map(tubeKey)).forEach(updateTube)
   }
+  updateTube('sataData') // the data cable starts out on the mat, both ends loose
 
   const slotPos = (s: SlotId) =>
     s === 'pciePower' ? parts.get('gpu')!.position.clone().add(GPU_POWER_OFFSET) : SLOT_POS[s]
@@ -149,7 +178,7 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
   const plane = new THREE.Plane()
   const grab = new THREE.Vector3()
   const hit = new THREE.Vector3()
-  let drag: { id: PartId; group: THREE.Group; candidates: SlotId[]; from: SlotId | null } | null = null
+  let drag: { id: PartId; group: THREE.Group; candidates: SlotId[]; from: SlotId | null; follower: { group: THREE.Group; offset: THREE.Vector3 } | null } | null = null
   /** Pointer went down on an installed part: a click (reveal cables) or, once it moves, a removal drag. */
   let pending: { id: PartId; group: THREE.Group } | null = null
   let nearest: SlotId | null = null
@@ -175,10 +204,10 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
 
   /** Lift a part (from the mat, or out of its slot) and light up every slot it could go in. Expects `ray` at the pointer. */
   // Hover highlight: tint every mesh of the part under the pointer (each mesh has its own material).
-  let hovered: THREE.Group | null = null
-  const setHover = (g: THREE.Group | null) => {
+  let hovered: THREE.Object3D | null = null
+  const setHover = (g: THREE.Object3D | null) => {
     if (g === hovered) return
-    const tint = (target: THREE.Group | null, hex: number) => target?.traverse(o => {
+    const tint = (target: THREE.Object3D | null, hex: number) => target?.traverse(o => {
       const m = (o as THREE.Mesh).material
       if (m instanceof THREE.MeshStandardMaterial) m.emissive.setHex(hex)
     })
@@ -186,6 +215,16 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
     tint(g, HOVER_GLOW)
     hovered = g
     canvas.style.cursor = g ? 'grab' : ''
+  }
+
+  /** Loose SATA data ends: parked beside the plugged-in end if there is one, else back on the mat. */
+  const settleDataCable = () => {
+    for (const id of ['sataData1', 'sataData2'] as PartId[]) {
+      if (isPlaced(id)) continue
+      const other = otherEnd(id)
+      parts.get(id)!.position.copy(isPlaced(other) ? parts.get(other)!.position.clone().add(SATA_PARK) : parts.get(id)!.userData.rest.position)
+    }
+    updateTube('sataData')
   }
 
   const startDrag = (id: PartId, group: THREE.Group) => {
@@ -197,15 +236,35 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
     const candidates = (Object.keys(SLOTS) as SlotId[]).filter(s => SLOTS[s].accepts === PARTS[id].kind && isSlotOpen(s, lifted))
     candidates.forEach(s => markers.get(s)!.position.copy(slotPos(s)))
     candidates.forEach(s => (markers.get(s)!.visible = options.guides))
-    drag = { id, group, candidates, from }
+    // While both ends of the SATA data cable are loose, the whole cable moves together.
+    const other = isDataEnd(id) && !from && !isPlaced(otherEnd(id)) ? parts.get(otherEnd(id))! : null
+    const follower = other && { group: other, offset: other.position.clone().sub(group.position) }
+    drag = { id, group, candidates, from, follower }
     setHover(group)
     canvas.style.cursor = 'grabbing'
+  }
+
+  /**
+   * What's under the pointer: a visible part, or else the SATA data cable itself while an end is loose. Grabbing the
+   * cable picks up the loose end nearest the grab point (the whole cable, if neither end is plugged in).
+   */
+  const pickTarget = (): { group: THREE.Group; hover: THREE.Object3D } | null => {
+    // Parts win over the cable, so a plug the cable rises from can still be grabbed.
+    const group = pick([...parts.values()].filter(g => g.visible))
+    if (group) return { group, hover: group }
+    const loose = (['sataData1', 'sataData2'] as PartId[]).filter(id => !isPlaced(id))
+    const cable = loose.length ? tubes.get('sataData') : undefined
+    const hit = cable && ray.intersectObject(cable)[0]
+    if (!hit) return null
+    const d = (id: PartId) => parts.get(id)!.position.distanceTo(hit.point)
+    const lead = loose.reduce((a, b) => (d(b) < d(a) ? b : a))
+    return { group: parts.get(lead)!, hover: cable! }
   }
 
   const onDown = (e: PointerEvent) => {
     downAt = { x: e.clientX, y: e.clientY }
     toNdc(e)
-    const group = pick([...parts.values()].filter(g => g.visible))
+    const group = pickTarget()?.group
     if (!group) return
     const id = group.userData.part as PartId
     controls.enabled = false
@@ -222,10 +281,11 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
       else startDrag(pending.id, pending.group)
       pending = null
     }
-    if (!drag && !downAt) setHover(pick([...parts.values()].filter(g => g.visible))) // not while orbiting
+    if (!drag && !downAt) setHover(pickTarget()?.hover ?? null) // not while orbiting
     if (!drag) return
     if (ray.ray.intersectPlane(plane, hit)) drag.group.position.copy(hit).add(grab)
-    if (CABLE_OWNER[drag.id]) updateTube(tubeKey(drag.id))
+    drag.follower?.group.position.copy(drag.group.position).add(drag.follower.offset)
+    if (hasTube(drag.id)) updateTube(tubeKey(drag.id))
     nearest = null
     let best = SNAP_PX
     for (const s of drag.candidates) {
@@ -235,9 +295,9 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
     drag.candidates.forEach(s => (markers.get(s)!.material = s === nearest ? hotMat : markerMat))
   }
 
-  // A click (no drag) on an installed PSU or SSD shows its cables; a click anywhere else hides them.
+  // A click (no drag) on the installed PSU shows its cables; a click anywhere else hides them.
   const onClick = () => {
-    const owner = pick((['psu', 'ssd'] as PartId[]).filter(isPlaced).map(id => parts.get(id)!))
+    const owner = pick((['psu'] as PartId[]).filter(isPlaced).map(id => parts.get(id)!))
     reveal(owner ? owner.userData.part : null)
   }
 
@@ -274,7 +334,8 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
     }
     // A pulled cable goes back to its spot beside its component; removing a PSU/SSD hides its loose cables.
     reveal(from && !to && CABLE_OWNER[id] ? CABLE_OWNER[id]! : revealed)
-    if (CABLE_OWNER[id]) updateTube(tubeKey(id))
+    if (isDataEnd(id)) settleDataCable()
+    else if (hasTube(id)) updateTube(tubeKey(id))
     syncLabels()
   }
 

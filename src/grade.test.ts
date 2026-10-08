@@ -6,7 +6,7 @@ const PERFECT: [PartId, SlotId][] = [
   ['standoffs', 'standoffs'], ['motherboard', 'motherboard'], ['cpu', 'socket'], ['ram1', 'dimmA2'],
   ['ram2', 'dimmB2'], ['m2', 'm2'], ['paste', 'paste'], ['cooler', 'cooler'], ['psu', 'psu'],
   ['gpu', 'pcie1'], ['cable24', 'atx24'], ['cableEps', 'eps8'], ['cablePcie', 'pciePower'],
-  ['ssd', 'driveBay'], ['cableSataPower', 'sataPower'], ['sataDataDrive', 'ssdData'], ['sataDataMb', 'sata1'],
+  ['ssd', 'driveBay'], ['cableSataPower', 'sataPower'], ['sataData1', 'ssdData'], ['sataData2', 'sata1'],
 ]
 const log = (steps: [PartId, SlotId][]): PlaceEvent[] => steps.map(([part, slot], t) => ({ part, slot, t }))
 const without = (part: PartId) => PERFECT.filter(([p]) => p !== part)
@@ -52,7 +52,7 @@ test('empty build clamps to 0', () => {
 })
 
 test('M.2 and SATA SSD together, on any SATA port, is not penalized', () => {
-  const steps = PERFECT.map(([p, s]): [PartId, SlotId] => [p, p === 'sataDataMb' ? 'sata2' : s])
+  const steps = PERFECT.map(([p, s]): [PartId, SlotId] => [p, p === 'sataData2' ? 'sata2' : s])
   assert.equal(grade(log(steps), 0).score, 100)
 })
 
@@ -88,4 +88,12 @@ test('parts attached to or covering a part block its removal', () => {
   assert.deepEqual(removalBlockers('psu', l).sort(), ['cable24', 'cableEps', 'cablePcie', 'cableSataPower'])
   assert.deepEqual(removalBlockers('ram1', l), []) // the other stick still provides RAM; nothing depends on it
   assert.deepEqual(removalBlockers('standoffs', l), ['motherboard'])
+})
+
+test('SATA data cable ends are interchangeable; each missing connection costs 10', () => {
+  const swapped = PERFECT.map(([p, s]): [PartId, SlotId] => [p, p === 'sataData1' ? 'sata3' : p === 'sataData2' ? 'ssdData' : s])
+  assert.equal(grade(log(swapped), 0).score, 100)
+  const bothInBoard = PERFECT.map(([p, s]): [PartId, SlotId] => [p, p === 'sataData1' ? 'sata3' : s])
+  assert.deepEqual(grade(log(bothInBoard), 0).deductions.map(d => d.message), ['SATA data cable not plugged into the SSD: it will not be detected.'])
+  assert.equal(grade(log(PERFECT.filter(([p]) => !p.startsWith('sataData'))), 0).score, 80)
 })
