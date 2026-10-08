@@ -147,6 +147,23 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
   let pending: { id: PartId; group: THREE.Group } | null = null
   let nearest: SlotId | null = null
   let downAt: { x: number; y: number } | null = null
+  let hovered: THREE.Group | null = null
+
+  /** Tint the part under the pointer (both looks, so a swap mid-hover stays lit). */
+  const hover = (g: THREE.Group | null) => {
+    if (g === hovered) return
+    const tint = (group: THREE.Group | null, hex: number) => {
+      const looks = group?.userData.looks as { rest: THREE.Group; installed: THREE.Group } | undefined
+      for (const root of [group, looks?.rest, looks?.installed]) root?.traverse(o => {
+        const m = (o as THREE.Mesh).material
+        if (m && 'emissive' in m) (m as THREE.MeshStandardMaterial).emissive.setHex(hex)
+      })
+    }
+    tint(hovered, 0x000000)
+    tint(g, 0x1f4d55)
+    hovered = g
+    canvas.style.cursor = g ? 'grab' : ''
+  }
 
   const toNdc = (e: PointerEvent) => {
     const r = canvas.getBoundingClientRect()
@@ -199,7 +216,10 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
       else startDrag(pending.id, pending.group)
       pending = null
     }
-    if (!drag) return
+    if (!drag) {
+      if (!pending && !downAt) hover(pick([...parts.values()].filter(g => g.visible)))
+      return
+    }
     if (ray.ray.intersectPlane(plane, hit)) drag.group.position.copy(hit).add(grab)
     if (CABLE_OWNER[drag.id]) updateTube(tubeKey(drag.id))
     nearest = null
@@ -258,6 +278,8 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
   canvas.addEventListener('pointermove', onMove)
   canvas.addEventListener('pointerup', onUp)
   canvas.addEventListener('pointercancel', onUp)
+  const onLeave = () => { if (!drag) hover(null) }
+  canvas.addEventListener('pointerleave', onLeave)
 
   const resize = () => {
     const { clientWidth: w, clientHeight: h } = canvas
@@ -282,6 +304,7 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
       canvas.removeEventListener('pointermove', onMove)
       canvas.removeEventListener('pointerup', onUp)
       canvas.removeEventListener('pointercancel', onUp)
+      canvas.removeEventListener('pointerleave', onLeave)
       renderer.dispose()
     },
   }
