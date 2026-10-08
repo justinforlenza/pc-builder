@@ -204,10 +204,10 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
 
   /** Lift a part (from the mat, or out of its slot) and light up every slot it could go in. Expects `ray` at the pointer. */
   // Hover highlight: tint every mesh of the part under the pointer (each mesh has its own material).
-  let hovered: THREE.Group | null = null
-  const setHover = (g: THREE.Group | null) => {
+  let hovered: THREE.Object3D | null = null
+  const setHover = (g: THREE.Object3D | null) => {
     if (g === hovered) return
-    const tint = (target: THREE.Group | null, hex: number) => target?.traverse(o => {
+    const tint = (target: THREE.Object3D | null, hex: number) => target?.traverse(o => {
       const m = (o as THREE.Mesh).material
       if (m instanceof THREE.MeshStandardMaterial) m.emissive.setHex(hex)
     })
@@ -244,10 +244,27 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
     canvas.style.cursor = 'grabbing'
   }
 
+  /**
+   * What's under the pointer: a visible part, or else the SATA data cable itself while an end is loose. Grabbing the
+   * cable picks up the loose end nearest the grab point (the whole cable, if neither end is plugged in).
+   */
+  const pickTarget = (): { group: THREE.Group; hover: THREE.Object3D } | null => {
+    // Parts win over the cable, so a plug the cable rises from can still be grabbed.
+    const group = pick([...parts.values()].filter(g => g.visible))
+    if (group) return { group, hover: group }
+    const loose = (['sataData1', 'sataData2'] as PartId[]).filter(id => !isPlaced(id))
+    const cable = loose.length ? tubes.get('sataData') : undefined
+    const hit = cable && ray.intersectObject(cable)[0]
+    if (!hit) return null
+    const d = (id: PartId) => parts.get(id)!.position.distanceTo(hit.point)
+    const lead = loose.reduce((a, b) => (d(b) < d(a) ? b : a))
+    return { group: parts.get(lead)!, hover: cable! }
+  }
+
   const onDown = (e: PointerEvent) => {
     downAt = { x: e.clientX, y: e.clientY }
     toNdc(e)
-    const group = pick([...parts.values()].filter(g => g.visible))
+    const group = pickTarget()?.group
     if (!group) return
     const id = group.userData.part as PartId
     controls.enabled = false
@@ -264,7 +281,7 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
       else startDrag(pending.id, pending.group)
       pending = null
     }
-    if (!drag && !downAt) setHover(pick([...parts.values()].filter(g => g.visible))) // not while orbiting
+    if (!drag && !downAt) setHover(pickTarget()?.hover ?? null) // not while orbiting
     if (!drag) return
     if (ray.ray.intersectPlane(plane, hit)) drag.group.position.copy(hit).add(grab)
     drag.follower?.group.position.copy(drag.group.position).add(drag.follower.offset)

@@ -83,7 +83,7 @@ function App() {
           <li><strong>Install:</strong> drag a part from the mat and drop it where it belongs in the case.</li>
           <li><strong>Remove or move:</strong> drag an installed part out of the case, or onto another slot. Anything attached to it has to come off first.</li>
           <li><strong>Power cables:</strong> click the installed power supply to bring out its cables, then drag each one to its connector.</li>
-          <li><strong>SATA data cable:</strong> it's on the mat. Drag the cable by either end to the SSD or the motherboard and plug it in, then plug the free end into the other.</li>
+          <li><strong>SATA data cable:</strong> it's on the mat. Drag the cable to the SSD or the motherboard and plug it in, then plug the free end into the other.</li>
           <li><strong>Look around:</strong> drag empty space to rotate, right-drag to pan, scroll to zoom.</li>
         </ul>
         <h3>How you're graded</h3>
