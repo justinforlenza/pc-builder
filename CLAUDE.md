@@ -44,16 +44,17 @@ There are three layers, and data flows one way: scene → `onChange` / `onBlocke
 - **`src/scene.ts`: interaction.**
   - Holds the renderer, OrbitControls, labels (canvas sprites, never raycast), pointer drag on a camera-facing plane, and snapping to the nearest open, compatible slot within `SNAP_PX` in screen space.
   - It keeps its own copy of the log and reports each install, move or removal through `onChange(part, slot | null)`. A removal refused by `removalBlockers` is reported through `onBlocked`.
-  - Pointer down on a loose part starts a drag. On an installed part it waits (`pending`): pointer up without movement is a click, which reveals cables for the PSU or SSD, and movement past `CLICK_PX` starts a removal drag if nothing blocks it. Dropping away from every slot removes the part, and dropping on a different open slot moves it.
+  - Pointer down on a loose part starts a drag. On an installed part it waits (`pending`): pointer up without movement is a click, which reveals the PSU's cables, and movement past `CLICK_PX` starts a removal drag if nothing blocks it. Dropping away from every slot removes the part, and dropping on a different open slot moves it.
   - Hovering a part (loose or installed) tints it via `setHover` (emissive `HOVER_GLOW` on every mesh; each mesh has its own material) and shows a grab cursor. There's no hover while orbiting. The tint follows the dragged part and is cleared on drop, before any look swap.
-  - `setInstalledLook` (models) swaps between a part's two looks. The thermal paste is a syringe on the mat and a grey disc on the CPU.
+  - `setInstalledLook` (models) swaps between a part's two looks. The thermal paste is a syringe on the mat and a grey disc on the CPU, and the standoffs are a loose pile on the mat and spread to the six mounting points once installed.
   - The `pointerdown` listener is registered in the capture phase so it runs before OrbitControls.
-  - **Cables start hidden.** `CABLE_OWNER` maps each cable to the component that reveals it (`psu` or `ssd`). A click (pointer up within `CLICK_PX` of pointer down, with no drag) on that component, once it's installed, calls `reveal()`. A click anywhere else hides the loose cables.
-  - Revealed cables wait at their `CABLE_SPOT` in front of the case. A cable's run is drawn by `updateTube`: PSU cables run from `PSU_CABLE_EXIT`, and the two SATA data ends share one tube between them. A data end stays visible while its other end is plugged in.
+  - **PSU cables start hidden.** `CABLE_OWNER` maps each PSU cable to `psu`. A click (pointer up within `CLICK_PX` of pointer down, with no drag) on the installed PSU calls `reveal()`, and a click anywhere else hides the loose cables. Revealed cables wait at their `CABLE_SPOT` in front of the case, and their runs come from `PSU_CABLE_EXIT`.
+  - **The SATA data cable lies on the mat.** Its two ends (`sataData1`, `sataData2`) are separate, interchangeable parts of kind `sataData` that share one tube (`tubeKey` 'sataData'). An end inside the case routes its run out through the open side. `grade()` checks this cable by connection (`RULES.connections`: a motherboard SATA port, and the SSD's port), not by part.
+  - The EPS and PCIe plugs are built by `splitPlug` (4+4 and 6+2), and `STAMP` puts "CPU" and "PCIe" on them. Stamps are physical markings, so they always show.
 - **`src/main.tsx`: Preact HUD.**
   - Shows the welcome `<dialog>` on load (instructions, grading summary, options). The timer starts when it closes; reopening it with Help doesn't reset the clock.
   - Shows the timer, the option toggles, Help, the "Finish build" button and the results `<dialog>`.
-  - The `labels` and `guides` options (both off by default) go to the scene through `setOptions`. Only floating part names are toggled; the motherboard's printed slot labels (A1–B2, PCIe, SATA, M.2) always show. With guides off, parts still snap, but the blue slot dots stay hidden.
+  - The `labels` and `guides` options (both off by default) go to the scene through `setOptions`. `labels` toggles the floating part names and the motherboard's printed port labels (A1–B2, PCIe, SATA, M.2, kept in `userData.portLabels`). With guides off, parts still snap, but the blue slot dots stay hidden.
   - Adds timestamps to the event log, then calls `grade()`.
   - There's deliberately no parts checklist, because it would reveal forgotten steps.
 

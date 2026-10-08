@@ -41,21 +41,22 @@ const MAT_TOP = DESK_TOP + MAT.thick
 
 /** Where each part lies on the mat (x, z); its height is derived so it rests on the mat surface. */
 const MAT_SPOT: Partial<Record<PartId, [number, number]>> = {
-  motherboard: [5, 1], standoffs: [5, 4.1],
+  motherboard: [5, 1], standoffs: [6.6, 3.3],
   cooler: [7.3, 1.6], gpu: [8.9, -0.5], psu: [11.5, 0.3],
   ram1: [9.2, 1.7], ram2: [10.8, 1.7],
   cpu: [7.8, 3.2], paste: [8.9, 3.2], m2: [10.1, 3.2], ssd: [11.6, 3.3],
+  sataData1: [8.2, 4.7], sataData2: [9.3, 4.7], // the two ends of the SATA data cable
 }
-/** Cables aren't on the mat: they appear here, in front of the case, when their installed component is clicked. */
+/** PSU cables aren't on the mat: they appear here, in front of the case, when the installed PSU is clicked. */
 const CABLE_SPOT: Partial<Record<PartId, THREE.Vector3>> = {
   cable24: v(-1.5, -0.8, 2.5), cableEps: v(0.1, -0.8, 2.5), cablePcie: v(-1.5, -1.6, 2.5), cableSataPower: v(0.1, -1.6, 2.5),
-  sataDataMb: v(1, -0.9, 2.5), sataDataDrive: v(1, -1.6, 2.5),
 }
 /** How a part lies on the mat. Most lie face-up; the GPU, PSU and SSD already rest flat as modelled. */
 const FACE_UP = new THREE.Euler(-Math.PI / 2, 0, 0)
 const MAT_ROT: Partial<Record<PartId, THREE.Euler>> = {
   ram1: new THREE.Euler(0, 0, Math.PI / 2), ram2: new THREE.Euler(0, 0, Math.PI / 2),
   gpu: new THREE.Euler(), psu: new THREE.Euler(), ssd: new THREE.Euler(),
+  sataData1: new THREE.Euler(), sataData2: new THREE.Euler(), // plugs lie on their side
 }
 
 /** Puts a freshly built part where it waits before install (mat or cable spot) and returns that pose. */
@@ -94,7 +95,7 @@ function cyl(r: number, h: number, color: number, at: THREE.Vector3, axis: 'x' |
 
 function group(...children: THREE.Object3D[]) {
   const g = new THREE.Group()
-  g.add(...children)
+  if (children.length) g.add(...children) // add() with no arguments logs a warning
   return g
 }
 
@@ -295,7 +296,7 @@ function gpu(g: THREE.Group) {
     box(L, 0.14, D, BLACK, v(cx, -0.27, cz)), // shroud
     box(L, 0.03, 0.06, 0xb71c1c, v(cx, -0.33, 0.08 + D - 0.04)), // accent strip
     box(0.03, 0.44, 1.2, ALU, v(-0.9, -0.17, 0.6), 0.8), // bracket
-    box(0.3, 0.1, 0.1, BLACK, GPU_POWER_OFFSET.clone().setZ(1.1)), // 8-pin power socket
+    box(0.36, 0.1, 0.1, BLACK, GPU_POWER_OFFSET.clone().setZ(1.1)), // 8-pin (6+2) power socket
   )
   for (const x of [-0.45, 0.36, 1.17]) {
     const f = fan(0.72, 0.06)
@@ -371,6 +372,18 @@ function plug(g: THREE.Group, w: number, h: number, color = BLACK) {
   g.add(box(w, h, 0.15, color), box(Math.min(w, h) * 0.6, 0.04, 0.08, color, v(0, h / 2 + 0.02, 0.1)))
 }
 
+/** 8-pin power plug made of separable blocks: CPU EPS is 4+4, GPU PCIe is 6+2. Latch on the first block. */
+function splitPlug(g: THREE.Group, widths: number[], gap: number) {
+  const h = 0.12
+  let x = -(widths.reduce((a, b) => a + b) + gap * (widths.length - 1)) / 2
+  widths.forEach((w, i) => {
+    const d = i === 0 ? 0.15 : 0.13 // the add-on block sits a little shorter, like real ones
+    g.add(box(w, h, d, BLACK, v(x + w / 2, 0, d / 2)))
+    if (i === 0) g.add(box(0.07, 0.04, 0.05, BLACK, v(x + w / 2, h / 2 + 0.02, 0.03))) // latch, at the mating end
+    x += w + gap
+  })
+}
+
 function ssd(g: THREE.Group) {
   // 2.5" drive lying flat. Origin = center of the underside; SATA connectors on the +z edge.
   g.add(
@@ -393,10 +406,25 @@ export function setInstalledLook(g: THREE.Group, installed: boolean) {
 export function buildPartMesh(id: PartId): THREE.Group {
   const g = new THREE.Group()
   switch (id) {
-    case 'standoffs':
-      for (const [x, y] of [[-1.4, 1.4], [1.4, 1.4], [-1.4, 0], [1.4, 0], [-1.4, -1.4], [1.4, -1.4]])
-        g.add(cyl(0.06, 0.12, GOLD, v(x, y, 0.06), 'z', 6), cyl(0.025, 0.05, GOLD, v(x, y, 0.145)))
+    case 'standoffs': {
+      // Two looks: a loose pile on the mat, and screwed in at the six motherboard mounting points once installed.
+      const standoff = () => group(cyl(0.06, 0.12, GOLD, v(0, 0, 0.06), 'z', 6), cyl(0.025, 0.05, GOLD, v(0, 0, 0.145)))
+      const installed = group()
+      for (const [x, y] of [[-1.4, 1.4], [1.4, 1.4], [-1.4, 0], [1.4, 0], [-1.4, -1.4], [1.4, -1.4]]) {
+        const s = standoff(); s.position.set(x, y, 0); installed.add(s)
+      }
+      // Pile: each lies on its side (axis in the mat plane) at a fixed jumble of spots and angles; two sit on top.
+      const pile = group()
+      for (const [x, y, z, a] of [[0, 0, 0, 0.3], [0.13, 0.06, 0, 2.1], [-0.1, 0.1, 0, 4], [0.05, -0.13, 0, 1.2], [-0.03, 0.02, 0.1, 5.2], [0.08, -0.03, 0.1, 2.8]]) {
+        const s = standoff()
+        s.rotation.set(Math.PI / 2, 0, 0) // lay it on its side
+        const spin = group(s); spin.rotation.z = a; spin.position.set(x, y, z + 0.06)
+        pile.add(spin)
+      }
+      g.userData.looks = { rest: pile, installed }
+      g.add(pile)
       break
+    }
     case 'motherboard': motherboard(g); break
     case 'cpu': cpu(g); break
     case 'paste': {
@@ -420,10 +448,10 @@ export function buildPartMesh(id: PartId): THREE.Group {
     case 'gpu': gpu(g); break
     case 'psu': psu(g); break
     case 'cable24': plug(g, 0.12, 0.6); break
-    case 'cableEps': plug(g, 0.35, 0.12); break
-    case 'cablePcie': plug(g, 0.3, 0.12); break
+    case 'cableEps': splitPlug(g, [0.165, 0.165], 0.02); break // 4+4
+    case 'cablePcie': splitPlug(g, [0.255, 0.085], 0.015); break // 6+2
     case 'cableSataPower': plug(g, 0.22, 0.05); break
-    case 'sataDataMb': case 'sataDataDrive': plug(g, 0.13, 0.05, SATA_RED); break
+    case 'sataData1': case 'sataData2': plug(g, 0.13, 0.05, SATA_RED); break
     case 'ssd': ssd(g); break
   }
   return g
