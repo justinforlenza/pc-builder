@@ -30,7 +30,7 @@ All of the rules are in [`src/grade.ts`](src/grade.ts) and can be edited. Each b
 | Order | RAM after the cooler −5 |
 | Time | −1 per minute over 8 minutes, capped at −10 |
 
-The PSU's cables aren't on the mat. Clicking the installed PSU shows them, and clicking anything else hides the loose ones again. The CPU (EPS 4+4) and GPU (PCIe 6+2) plugs are shaped differently and stamped "CPU" and "PCIe", like real modular cables. The SATA data cable lies on the mat: plug either end into the SSD or a motherboard SATA port, then the other end into the other.
+The PSU's cables aren't on the mat. Clicking the installed PSU shows them, and clicking anything else hides the loose ones again. The CPU (EPS 4+4) and GPU (PCIe 6+2) plugs are shaped differently and stamped "CPU" and "PCIe", like real modular cables. The SATA data cable lies on the mat. Dragging either end brings the whole cable along; once that end is plugged into the SSD or a motherboard SATA port, the free end waits beside it to be plugged into the other.
 
 Students can drag an installed part back out, to remove it or move it to another slot. Anything attached to it or covering it has to come off first: for example, the cooler before the CPU, or the cables before the PSU. A skipped step therefore means taking parts back out. The standoff holes are covered once the motherboard is in, and the CPU socket (and its paste) once the cooler is on, even if the cooler went on before the CPU by mistake.
 

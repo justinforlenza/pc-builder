@@ -31,6 +31,8 @@ export const SLOT_POS: Record<Exclude<SlotId, 'pciePower'>, THREE.Vector3> = {
 }
 /** GPU power socket relative to the GPU's slot (the GPU can sit in either x16 slot). */
 export const GPU_POWER_OFFSET = v(1.3, -0.05, 1.15)
+/** Where the free end of the SATA data cable waits once the other end is plugged in, relative to that end. */
+export const SATA_PARK = v(0.3, 0.6, 0.5)
 /** Where cables leave the PSU's modular panel, relative to the PSU. */
 export const PSU_CABLE_EXIT = v(0.82, 0.15, 0)
 
