@@ -17,7 +17,7 @@ There's no linter. `npx tsc` is the only static check.
 
 ## Constraints
 
-- **Static site only:** no server and no database. `vite.config.ts` sets `base: './'` so `dist/` works under any subpath (GitHub Pages at `/pc-builder/`, an LMS iframe). Every push to `main` deploys via `.github/workflows/deploy.yml`, and the tests gate that deploy.
+- **Static site only:** no server and no database. `vite.config.ts` sets `base: './'` so `dist/` works under any subpath (GitHub Pages at `/pc-builder/`, an LMS iframe). Publishing a GitHub release runs `.github/workflows/deploy.yml`: tests gate it, it attaches `pc-builder-scorm.zip` to the release, then deploys Pages with `VITE_SCORM_URL` set so the site header links to that zip. Other builds (dev, the zip itself) show no link.
 - **SCORM 1.2 is the no-server LMS path.** `public/imsmanifest.xml` lands at the root of `dist/`, and `src/scorm.ts` finds the LMS's `API` in a parent frame and reports the score on finish. Without an LMS it's a no-op. The score is computed client-side, so it can be forged; LTI (below) is the tamper-proof path.
 - **Node runs `src/grade.ts` directly** with `--experimental-strip-types`. So in `grade.ts` and anything it imports:
   - no enums or namespaces (use string-literal unions)

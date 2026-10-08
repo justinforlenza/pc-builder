@@ -50,6 +50,7 @@ function App() {
       <header>
         <h1>PC Builder</h1>
         <span class="timer" aria-label="Elapsed time">{fmt(now - start.current)}</span>
+        {import.meta.env.VITE_SCORM_URL && <a class="button" href={import.meta.env.VITE_SCORM_URL} download>SCORM package</a>}
         <button onClick={finish} disabled={!!result}>Finish build</button>
       </header>
       <p class="hint">
@@ -58,8 +59,7 @@ function App() {
       <dialog ref={dialog} onCancel={e => e.preventDefault()}>
         {result && (
           <>
-            <h2>Your grade: {result.letter}</h2>
-            <p class="score">{result.score} / 100</p>
+            <h2>Your score: {result.score} / 100</h2>
             {result.deductions.length === 0
               ? <p>Perfect build, nice work!</p>
               : <ul>{result.deductions.map(d => (
