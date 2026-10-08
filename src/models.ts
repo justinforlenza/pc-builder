@@ -382,6 +382,14 @@ function ssd(g: THREE.Group) {
   for (const x of [-0.366, 0.366]) for (const z of [-0.3, 0.3]) g.add(cyl(0.015, 0.01, BLACK, v(x, 0.035, z), 'x'))
 }
 
+/** Swap to the part's installed or rest look, for parts that have two (the thermal paste). */
+export function setInstalledLook(g: THREE.Group, installed: boolean) {
+  const looks = g.userData.looks as { rest: THREE.Group; installed: THREE.Group } | undefined
+  if (!looks) return
+  g.remove(looks.rest, looks.installed)
+  g.add(installed ? looks.installed : looks.rest)
+}
+
 export function buildPartMesh(id: PartId): THREE.Group {
   const g = new THREE.Group()
   switch (id) {
@@ -391,7 +399,21 @@ export function buildPartMesh(id: PartId): THREE.Group {
       break
     case 'motherboard': motherboard(g); break
     case 'cpu': cpu(g); break
-    case 'paste': g.add(cyl(0.11, 0.015, 0x9e9e9e, v(0, 0, 0.008))); break
+    case 'paste': {
+      // Two looks: a syringe while on the mat, a spread grey disc once applied to the CPU.
+      const syringe = group(
+        cyl(0.045, 0.42, 0xd8dade, v(0, 0, 0.045), 'x'), // barrel
+        cyl(0.035, 0.4, 0x8a8a8a, v(-0.01, 0, 0.045), 'x'), // paste inside
+        cyl(0.02, 0.08, 0x8a8a8a, v(-0.25, 0, 0.045), 'x'), // nozzle
+        cyl(0.012, 0.14, WHITE, v(0.27, 0, 0.045), 'x'), // plunger rod
+        cyl(0.04, 0.012, WHITE, v(0.345, 0, 0.045), 'x'), // plunger pad
+        box(0.015, 0.16, 0.06, WHITE, v(0.21, 0, 0.045)), // finger flange
+      )
+      const disc = group(cyl(0.11, 0.015, 0x9e9e9e, v(0, 0, 0.008)))
+      g.userData.looks = { rest: syringe, installed: disc }
+      g.add(syringe)
+      break
+    }
     case 'cooler': cooler(g); break
     case 'ram1': case 'ram2': ram(g); break
     case 'm2': m2(g); break

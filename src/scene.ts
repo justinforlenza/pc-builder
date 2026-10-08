@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { PARTS, SLOTS, isSlotOpen, type PartId, type PlaceEvent, type SlotId } from './grade.ts'
-import { buildCase, buildDesk, buildPartMesh, placeAtRest, v, GPU_POWER_OFFSET, PSU_CABLE_EXIT, SATA_RED, SLOT_POS } from './models.ts'
+import { PARTS, SLOTS, installed, isSlotOpen, removalBlockers, type PartId, type PlaceEvent, type SlotId } from './grade.ts'
+import { buildCase, buildDesk, buildPartMesh, placeAtRest, setInstalledLook, v, GPU_POWER_OFFSET, PSU_CABLE_EXIT, SATA_RED, SLOT_POS } from './models.ts'
 
 const SNAP_PX = 70
 const CLICK_PX = 5
@@ -56,7 +56,14 @@ function buildPart(id: PartId): THREE.Group {
   return g
 }
 
-export function createScene(canvas: HTMLCanvasElement, onPlace: (part: PartId, slot: SlotId) => void) {
+export interface SceneEvents {
+  /** A part was installed in / moved to `slot`, or removed (slot = null). */
+  onChange(part: PartId, slot: SlotId | null): void
+  /** The student tried to pull out a part that other installed parts are attached to or covering. */
+  onBlocked(part: PartId, blockers: PartId[]): void
+}
+
+export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: SceneEvents) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
   const scene = new THREE.Scene()
@@ -73,7 +80,7 @@ export function createScene(canvas: HTMLCanvasElement, onPlace: (part: PartId, s
   const parts = new Map((Object.keys(PARTS) as PartId[]).map(id => [id, buildPart(id)]))
   parts.forEach(p => scene.add(p))
   const log: PlaceEvent[] = []
-  const isPlaced = (id: PartId) => log.some(l => l.part === id)
+  const isPlaced = (id: PartId) => installed(log).has(id)
 
   // Visual-only cable runs: PSU cables from the modular panel, the SATA data cable between its two ends.
   const tubes = new Map<string, THREE.Mesh>()
@@ -99,12 +106,14 @@ export function createScene(canvas: HTMLCanvasElement, onPlace: (part: PartId, s
     scene.add(m)
   }
 
-  /** Show the loose cables of `owner` (or none). A data-cable end stays out while its other end is plugged in. */
+  /** Show the loose cables of an installed `owner` (or none). A data-cable end stays out while its other end is plugged in. */
+  let revealed: PartId | null = null
   const reveal = (owner: PartId | null) => {
+    revealed = owner
     for (const id of CABLES) {
       if (isPlaced(id)) continue
       const p = partner(id)
-      parts.get(id)!.visible = CABLE_OWNER[id] === owner || (p !== null && isPlaced(p))
+      parts.get(id)!.visible = (CABLE_OWNER[id] === owner && isPlaced(owner!)) || (p !== null && isPlaced(p))
       parts.get(id)!.position.copy(parts.get(id)!.userData.rest.position)
     }
     new Set(CABLES.map(tubeKey)).forEach(updateTube)
@@ -133,7 +142,9 @@ export function createScene(canvas: HTMLCanvasElement, onPlace: (part: PartId, s
   const plane = new THREE.Plane()
   const grab = new THREE.Vector3()
   const hit = new THREE.Vector3()
-  let drag: { id: PartId; group: THREE.Group; candidates: SlotId[] } | null = null
+  let drag: { id: PartId; group: THREE.Group; candidates: SlotId[]; from: SlotId | null } | null = null
+  /** Pointer went down on an installed part: a click (reveal cables) or, once it moves, a removal drag. */
+  let pending: { id: PartId; group: THREE.Group } | null = null
   let nearest: SlotId | null = null
   let downAt: { x: number; y: number } | null = null
 
@@ -143,35 +154,52 @@ export function createScene(canvas: HTMLCanvasElement, onPlace: (part: PartId, s
     ray.setFromCamera(ndc, camera)
   }
 
+  const pick = (candidates: THREE.Object3D[]) => {
+    let o: THREE.Object3D | null = ray.intersectObjects(candidates, true)[0]?.object ?? null
+    while (o && !o.userData.part) o = o.parent
+    return o as THREE.Group | null
+  }
+
   const screenDist = (a: THREE.Vector3, b: THREE.Vector3) => {
     const r = canvas.getBoundingClientRect()
     const pa = a.clone().project(camera), pb = b.clone().project(camera)
     return Math.hypot((pa.x - pb.x) * r.width / 2, (pa.y - pb.y) * r.height / 2)
   }
 
-  const onDown = (e: PointerEvent) => {
-    downAt = { x: e.clientX, y: e.clientY }
-    toNdc(e)
-    const loose = [...parts.values()].filter(g => g.visible && !isPlaced(g.userData.part))
-    let o: THREE.Object3D | null = ray.intersectObjects(loose, true)[0]?.object ?? null
-    while (o && !o.userData.part) o = o.parent
-    if (!o) return
-    const group = o as THREE.Group
-    const id = group.userData.part as PartId
-    controls.enabled = false
-    canvas.setPointerCapture(e.pointerId)
+  /** Lift a part (from the mat, or out of its slot) and light up every slot it could go in. Expects `ray` at the pointer. */
+  const startDrag = (id: PartId, group: THREE.Group) => {
+    const from = installed(log).get(id)?.slot ?? null
+    const lifted: PlaceEvent[] = from ? [...log, { part: id, slot: null, t: 0 }] : log
     plane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()), group.position)
     ray.ray.intersectPlane(plane, hit)
     grab.copy(group.position).sub(hit)
-    const candidates = (Object.keys(SLOTS) as SlotId[]).filter(s => SLOTS[s].accepts === PARTS[id].kind && isSlotOpen(s, log))
+    const candidates = (Object.keys(SLOTS) as SlotId[]).filter(s => SLOTS[s].accepts === PARTS[id].kind && isSlotOpen(s, lifted))
     candidates.forEach(s => markers.get(s)!.position.copy(slotPos(s)))
     candidates.forEach(s => (markers.get(s)!.visible = true))
-    drag = { id, group, candidates }
+    drag = { id, group, candidates, from }
+  }
+
+  const onDown = (e: PointerEvent) => {
+    downAt = { x: e.clientX, y: e.clientY }
+    toNdc(e)
+    const group = pick([...parts.values()].filter(g => g.visible))
+    if (!group) return
+    const id = group.userData.part as PartId
+    controls.enabled = false
+    canvas.setPointerCapture(e.pointerId)
+    if (isPlaced(id)) pending = { id, group }
+    else startDrag(id, group)
   }
 
   const onMove = (e: PointerEvent) => {
-    if (!drag) return
     toNdc(e)
+    if (pending && downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) >= CLICK_PX) {
+      const blockers = removalBlockers(pending.id, log)
+      if (blockers.length) onBlocked(pending.id, blockers)
+      else startDrag(pending.id, pending.group)
+      pending = null
+    }
+    if (!drag) return
     if (ray.ray.intersectPlane(plane, hit)) drag.group.position.copy(hit).add(grab)
     if (CABLE_OWNER[drag.id]) updateTube(tubeKey(drag.id))
     nearest = null
@@ -184,37 +212,46 @@ export function createScene(canvas: HTMLCanvasElement, onPlace: (part: PartId, s
   }
 
   // A click (no drag) on an installed PSU or SSD shows its cables; a click anywhere else hides them.
-  const onClick = (e: PointerEvent) => {
-    toNdc(e)
-    const owners = (['psu', 'ssd'] as PartId[]).filter(isPlaced).map(id => parts.get(id)!)
-    let o: THREE.Object3D | null = ray.intersectObjects(owners, true)[0]?.object ?? null
-    while (o && !o.userData.part) o = o.parent
-    reveal(o ? o.userData.part : null)
+  const onClick = () => {
+    const owner = pick((['psu', 'ssd'] as PartId[]).filter(isPlaced).map(id => parts.get(id)!))
+    reveal(owner ? owner.userData.part : null)
+  }
+
+  const commit = (id: PartId, slot: SlotId | null) => {
+    log.push({ part: id, slot, t: 0 })
+    onChange(id, slot)
   }
 
   const onUp = (e: PointerEvent) => {
     const wasClick = e.type === 'pointerup' && downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) < CLICK_PX
     downAt = null
+    pending = null
+    controls.enabled = true
     if (!drag) {
-      if (wasClick) onClick(e)
+      if (wasClick) { toNdc(e); onClick() }
       return
     }
-    const { id, group } = drag
-    markers.forEach(m => (m.visible = false))
-    if (nearest) {
-      group.position.copy(slotPos(nearest))
-      group.rotation.set(0, 0, 0)
-      group.userData.label.visible = false
-      log.push({ part: id, slot: nearest, t: 0 })
-      onPlace(id, nearest)
-    } else {
-      group.position.copy(group.userData.rest.position)
-      group.rotation.copy(group.userData.rest.rotation)
-    }
-    if (CABLE_OWNER[id]) updateTube(tubeKey(id))
+    const { id, group, from } = drag
+    const to = nearest
     drag = null
     nearest = null
-    controls.enabled = true
+    markers.forEach(m => (m.visible = false))
+    if (to) { // install, move, or put back where it was
+      group.position.copy(slotPos(to))
+      group.rotation.set(0, 0, 0)
+      group.userData.label.visible = false
+      setInstalledLook(group, true)
+      if (to !== from) commit(id, to)
+    } else { // back to the mat (removing it, if it was installed)
+      group.position.copy(group.userData.rest.position)
+      group.rotation.copy(group.userData.rest.rotation)
+      group.userData.label.visible = true
+      setInstalledLook(group, false)
+      if (from) commit(id, null)
+    }
+    // A pulled cable goes back to its spot beside its component; removing a PSU/SSD hides its loose cables.
+    reveal(from && !to && CABLE_OWNER[id] ? CABLE_OWNER[id]! : revealed)
+    if (CABLE_OWNER[id]) updateTube(tubeKey(id))
   }
 
   canvas.addEventListener('pointerdown', onDown, { capture: true }) // before OrbitControls sees it

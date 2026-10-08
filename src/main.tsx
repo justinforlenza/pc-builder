@@ -13,10 +13,19 @@ function App() {
   const [log, setLog] = useState<PlaceEvent[]>([])
   const [now, setNow] = useState(start.current)
   const [result, setResult] = useState<GradeResult | null>(null)
+  const [note, setNote] = useState<string | null>(null)
 
   useEffect(() => {
-    const s = createScene(canvas.current!, (part, slot) =>
-      setLog(l => [...l, { part, slot, t: Math.round(performance.now() - start.current) }]))
+    const s = createScene(canvas.current!, {
+      onChange(part, slot) {
+        setLog(l => [...l, { part, slot, t: Math.round(performance.now() - start.current) }])
+        setNote(slot ? `Installed ${PARTS[part].name} → ${SLOTS[slot].name}` : `Removed ${PARTS[part].name}`)
+      },
+      onBlocked(part, blockers) {
+        const names = [...new Set(blockers.map(b => PARTS[b].name))].join(', ')
+        setNote(`Can't remove the ${PARTS[part].name} yet: take off the ${names} first.`)
+      },
+    })
     return s.dispose
   }, [])
 
@@ -32,7 +41,6 @@ function App() {
     dialog.current!.showModal()
   }
 
-  const last = log.at(-1)
   return (
     <>
       <canvas ref={canvas} />
@@ -42,9 +50,7 @@ function App() {
         <button onClick={finish} disabled={!!result}>Finish build</button>
       </header>
       <p class="hint">
-        {last
-          ? `Installed ${PARTS[last.part].name} → ${SLOTS[last.slot].name}`
-          : 'Drag parts from the anti-static mat into the case. Click the installed PSU or SSD to get its cables. Drag empty space to rotate, right-drag to pan, scroll to zoom.'}
+        {note ?? 'Drag parts from the anti-static mat into the case; drag an installed part out to remove it. Click the installed PSU or SSD to get its cables. Drag empty space to rotate, right-drag to pan, scroll to zoom.'}
       </p>
       <dialog ref={dialog} onCancel={e => e.preventDefault()}>
         {result && (

@@ -24,14 +24,15 @@ There's no linter. `npx tsc` is the only static check.
 
 ## Architecture
 
-There are three layers, and data flows one way: scene → `onPlace` → app state → `grade()`.
+There are three layers, and data flows one way: scene → `onChange` / `onBlocked` → app state → `grade()`.
 
 - **`src/grade.ts`: rules and grading, the single source of truth for gameplay.**
   - `PARTS` maps each part to a `kind`.
   - `SLOTS` lists, for each slot, the kind it `accepts`, the kinds it `requires`, and the kinds it is `hiddenBy`.
-  - `isSlotOpen(slot, log)` decides whether a slot can be used right now. The scene uses it while dragging.
-  - `grade(log, elapsedMs)` applies `RULES`, which covers missing parts, placement, order and time. `RULES` is the teacher-editable table.
-  - `hiddenBy` is what makes a skipped step permanent. The standoffs slot closes once the motherboard is placed, and the paste slot closes once the cooler is placed. That's how "forgotten" deductions become gradable.
+  - The log is a list of `PlaceEvent`s. An event with `slot: null` is a removal, and a new slot for a part that's already installed is a move. `installed(log)` replays the log into the current state: each part's slot and the index of its last install.
+  - `isSlotOpen(slot, log)` decides whether a slot can be used right now, and `removalBlockers(part, log)` lists what must come off before a part can be removed (parts covering its slot, or parts in slots that require it). The scene uses both while dragging.
+  - `grade(log, elapsedMs)` grades the replayed final state, so a fixed mistake costs only time. Order rules use each part's last install index. It applies `RULES`, which covers missing parts, placement, order and time. `RULES` is the teacher-editable table.
+  - `hiddenBy` makes a skipped step stick until the student takes parts back out. The standoffs slot closes once the motherboard is placed, and the socket and paste slots close once the cooler is placed. The cooler only `requires` the motherboard, so it can go on an empty socket by mistake.
   - Wrong but compatible slots (RAM in A1/B1, GPU in the bottom x16) are allowed on purpose, because they're what the placement rules grade.
 - **`src/models.ts`: untextured three.js geometry and world layout.**
   - `SLOT_POS` gives each slot's world position, and `GPU_POWER_OFFSET` and `PSU_CABLE_EXIT` are relative offsets. `buildDesk()` builds the desk, the anti-static mat and the mat's ground cord. The case's feet stand on `DESK_TOP`.
@@ -42,7 +43,9 @@ There are three layers, and data flows one way: scene → `onPlace` → app stat
   - `pciePower` has no fixed position. It's computed from wherever the GPU was placed.
 - **`src/scene.ts`: interaction.**
   - Holds the renderer, OrbitControls, labels (canvas sprites, never raycast), pointer drag on a camera-facing plane, and snapping to the nearest open, compatible slot within `SNAP_PX` in screen space.
-  - It keeps its own placement log for `isSlotOpen` and reports each placement through `onPlace`.
+  - It keeps its own copy of the log and reports each install, move or removal through `onChange(part, slot | null)`. A removal refused by `removalBlockers` is reported through `onBlocked`.
+  - Pointer down on a loose part starts a drag. On an installed part it waits (`pending`): pointer up without movement is a click, which reveals cables for the PSU or SSD, and movement past `CLICK_PX` starts a removal drag if nothing blocks it. Dropping away from every slot removes the part, and dropping on a different open slot moves it.
+  - `setInstalledLook` (models) swaps between a part's two looks. The thermal paste is a syringe on the mat and a grey disc on the CPU.
   - The `pointerdown` listener is registered in the capture phase so it runs before OrbitControls.
   - **Cables start hidden.** `CABLE_OWNER` maps each cable to the component that reveals it (`psu` or `ssd`). A click (pointer up within `CLICK_PX` of pointer down, with no drag) on that component, once it's installed, calls `reveal()`. A click anywhere else hides the loose cables.
   - Revealed cables wait at their `CABLE_SPOT` in front of the case. A cable's run is drawn by `updateTube`: PSU cables run from `PSU_CABLE_EXIT`, and the two SATA data ends share one tube between them. A data end stays visible while its other end is plugged in.

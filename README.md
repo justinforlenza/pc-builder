@@ -25,12 +25,14 @@ All of the rules are in [`src/grade.ts`](src/grade.ts) and can be edited. Each b
 |---|---|
 | Forgotten | standoffs −15, thermal paste −15, any other part −15, each unplugged cable connection −10 (24-pin, EPS, PCIe power, SATA power, SATA data at the motherboard, SATA data at the SSD) |
 | Placement | RAM not in A2 + B2 −5, GPU not in the top x16 slot −5 |
-| Order | RAM after the cooler −5, M.2 after the GPU −5 |
+| Order | RAM after the cooler −5 |
 | Time | −1 per minute over 8 minutes, capped at −10 |
 
 Cables aren't on the mat. Clicking the installed PSU shows its cables, clicking the installed SSD shows the SATA data cable, and clicking anything else hides the loose ones again.
 
-Students can't go back and fix a skipped step. The standoff holes are covered once the motherboard is in, and the top of the CPU is covered once the cooler is on.
+Students can drag an installed part back out, to remove it or move it to another slot. Anything attached to it or covering it has to come off first: for example, the cooler before the CPU, or the cables before the PSU. A skipped step therefore means taking parts back out. The standoff holes are covered once the motherboard is in, and the CPU socket (and its paste) once the cooler is on, even if the cooler went on before the CPU by mistake.
+
+The grade is based on the finished build, so a mistake that gets fixed only costs time.
 
 ## Roadmap
 

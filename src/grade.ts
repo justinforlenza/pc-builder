@@ -17,8 +17,8 @@ export type SlotId =
   | 'psu' | 'atx24' | 'eps8' | 'pciePower'
   | 'driveBay' | 'sataPower' | 'sata1' | 'sata2' | 'sata3' | 'sata4' | 'ssdData'
 
-/** One install action. t = ms since the build started. */
-export interface PlaceEvent { part: PartId; slot: SlotId; t: number }
+/** One action. slot = where the part was installed (or moved to); null = removed. t = ms since the build started. */
+export interface PlaceEvent { part: PartId; slot: SlotId | null; t: number }
 
 export interface Deduction { category: 'Forgotten' | 'Placement' | 'Order' | 'Time'; points: number; message: string }
 export interface GradeResult { score: number; letter: string; deductions: Deduction[] }
@@ -51,9 +51,9 @@ export const PARTS: Record<PartId, { name: string; kind: Kind }> = {
 export const SLOTS: Record<SlotId, { name: string; accepts: Kind; requires?: Kind[]; hiddenBy?: Kind[] }> = {
   standoffs: { name: 'case standoff holes', accepts: 'standoffs', hiddenBy: ['motherboard'] },
   motherboard: { name: 'motherboard tray', accepts: 'motherboard' },
-  socket: { name: 'CPU socket', accepts: 'cpu', requires: ['motherboard'] },
+  socket: { name: 'CPU socket', accepts: 'cpu', requires: ['motherboard'], hiddenBy: ['cooler'] },
   paste: { name: 'top of the CPU', accepts: 'paste', requires: ['cpu'], hiddenBy: ['cooler'] },
-  cooler: { name: 'CPU cooler mount', accepts: 'cooler', requires: ['cpu'] },
+  cooler: { name: 'CPU cooler mount', accepts: 'cooler', requires: ['motherboard'] }, // fits on an empty socket too, by mistake
   dimmA1: { name: 'DIMM slot A1', accepts: 'ram', requires: ['motherboard'] },
   dimmA2: { name: 'DIMM slot A2', accepts: 'ram', requires: ['motherboard'] },
   dimmB1: { name: 'DIMM slot B1', accepts: 'ram', requires: ['motherboard'] },
@@ -96,8 +96,6 @@ export const RULES = {
   order: [
     { first: ['ram1', 'ram2'], then: 'cooler', points: 5,
       message: 'Install RAM before the CPU cooler; large coolers block access to the DIMM slots.' },
-    { first: ['m2'], then: 'gpu', points: 5,
-      message: 'Install the M.2 SSD before the graphics card; the GPU often covers the M.2 slot.' },
   ] as { first: PartId[]; then: PartId; points: number; message: string }[],
   timeLimitMin: 8,
   timePerMin: 1,
@@ -105,21 +103,48 @@ export const RULES = {
   letters: [[90, 'A'], [80, 'B'], [70, 'C'], [60, 'D'], [0, 'F']] as [number, string][],
 }
 
+/** Replays the log: what is installed now, where, and at which log index it was last placed. */
+export function installed(log: PlaceEvent[]): Map<PartId, { slot: SlotId; i: number }> {
+  const at = new Map<PartId, { slot: SlotId; i: number }>()
+  log.forEach((e, i) => (e.slot ? at.set(e.part, { slot: e.slot, i }) : at.delete(e.part)))
+  return at
+}
+
+const kindsOf = (at: Map<PartId, unknown>, except?: PartId) =>
+  new Set([...at.keys()].filter(p => p !== except).map(p => PARTS[p].kind))
+
 export function isSlotOpen(slot: SlotId, log: PlaceEvent[]): boolean {
   const s = SLOTS[slot]
-  const kinds = new Set(log.map(e => PARTS[e.part].kind))
-  return !log.some(e => e.slot === slot)
+  const at = installed(log)
+  const kinds = kindsOf(at)
+  return ![...at.values()].some(x => x.slot === slot)
     && (s.requires ?? []).every(k => kinds.has(k))
     && !(s.hiddenBy ?? []).some(k => kinds.has(k))
 }
 
+/**
+ * Installed parts that must come off before `part` can be removed: whatever covers its slot
+ * (hiddenBy), and whatever sits in a slot that requires it (unless another part of the same kind remains).
+ */
+export function removalBlockers(part: PartId, log: PlaceEvent[]): PartId[] {
+  const at = installed(log)
+  const mine = at.get(part)
+  if (!mine) return []
+  const kind = PARTS[part].kind
+  const stillProvided = kindsOf(at, part).has(kind)
+  return [...at].filter(([p, { slot }]) => p !== part && (
+    (SLOTS[mine.slot].hiddenBy ?? []).includes(PARTS[p].kind) ||
+    (!stillProvided && (SLOTS[slot].requires ?? []).includes(kind))
+  )).map(([p]) => p)
+}
+
 export function grade(log: PlaceEvent[], elapsedMs: number): GradeResult {
   const deductions: Deduction[] = []
-  const at = new Map(log.map((e, i) => [e.part, { slot: e.slot, i }]))
+  const at = installed(log) // grade the finished build; fixed mistakes only cost time
 
   for (const part of Object.keys(PARTS) as PartId[]) {
     if (at.has(part)) continue
-    const [points, message] = RULES.missing[part] ?? [RULES.missingDefault, `${PARTS[part].name} was never installed.`]
+    const [points, message] = RULES.missing[part] ?? [RULES.missingDefault, `${PARTS[part].name} is not installed.`]
     deductions.push({ category: 'Forgotten', points, message })
   }
 
