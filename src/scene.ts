@@ -63,7 +63,11 @@ export interface SceneEvents {
   onBlocked(part: PartId, blockers: PartId[]): void
 }
 
+/** Visual aids, both off by default: floating part names, and the blue dots on open slots while dragging. */
+export interface SceneOptions { labels: boolean; guides: boolean }
+
 export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: SceneEvents) {
+  const options: SceneOptions = { labels: false, guides: false }
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
   const scene = new THREE.Scene()
@@ -81,6 +85,8 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
   parts.forEach(p => scene.add(p))
   const log: PlaceEvent[] = []
   const isPlaced = (id: PartId) => installed(log).has(id)
+  const syncLabels = () => parts.forEach((g, id) => (g.userData.label.visible = options.labels && !isPlaced(id)))
+  syncLabels()
 
   // Visual-only cable runs: PSU cables from the modular panel, the SATA data cable between its two ends.
   const tubes = new Map<string, THREE.Mesh>()
@@ -175,7 +181,7 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
     grab.copy(group.position).sub(hit)
     const candidates = (Object.keys(SLOTS) as SlotId[]).filter(s => SLOTS[s].accepts === PARTS[id].kind && isSlotOpen(s, lifted))
     candidates.forEach(s => markers.get(s)!.position.copy(slotPos(s)))
-    candidates.forEach(s => (markers.get(s)!.visible = true))
+    candidates.forEach(s => (markers.get(s)!.visible = options.guides))
     drag = { id, group, candidates, from }
   }
 
@@ -239,19 +245,18 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
     if (to) { // install, move, or put back where it was
       group.position.copy(slotPos(to))
       group.rotation.set(0, 0, 0)
-      group.userData.label.visible = false
       setInstalledLook(group, true)
       if (to !== from) commit(id, to)
     } else { // back to the mat (removing it, if it was installed)
       group.position.copy(group.userData.rest.position)
       group.rotation.copy(group.userData.rest.rotation)
-      group.userData.label.visible = true
       setInstalledLook(group, false)
       if (from) commit(id, null)
     }
     // A pulled cable goes back to its spot beside its component; removing a PSU/SSD hides its loose cables.
     reveal(from && !to && CABLE_OWNER[id] ? CABLE_OWNER[id]! : revealed)
     if (CABLE_OWNER[id]) updateTube(tubeKey(id))
+    syncLabels()
   }
 
   canvas.addEventListener('pointerdown', onDown, { capture: true }) // before OrbitControls sees it
@@ -274,6 +279,10 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
   })
 
   return {
+    setOptions(o: SceneOptions) {
+      Object.assign(options, o)
+      syncLabels()
+    },
     dispose() {
       renderer.setAnimationLoop(null)
       ro.disconnect()

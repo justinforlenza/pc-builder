@@ -2,6 +2,8 @@
 
 A 3D PC assembly simulator for students. Drag the core components from the anti-static mat on the desk into the case, press **Finish build**, and get a grade with an explanation of every deduction.
 
+A welcome screen explains the controls and grading, and the timer starts when the student presses Start. Two helpers are off by default and can be turned on from the welcome screen or the top bar: **Part names** (floating labels on the parts) and **Placement guides** (blue dots on the slots a dragged part fits).
+
 It's a static site with no server and no database.
 
 ## Run
