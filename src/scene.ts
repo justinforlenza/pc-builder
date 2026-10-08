@@ -5,6 +5,7 @@ import { buildCase, buildDesk, buildPartMesh, placeAtRest, setInstalledLook, v, 
 
 const SNAP_PX = 70
 const CLICK_PX = 5
+const HOVER_GLOW = 0x1e4a66
 
 /** Cables stay hidden until their installed component is clicked. */
 const CABLE_OWNER: Partial<Record<PartId, PartId>> = {
@@ -173,6 +174,20 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
   }
 
   /** Lift a part (from the mat, or out of its slot) and light up every slot it could go in. Expects `ray` at the pointer. */
+  // Hover highlight: tint every mesh of the part under the pointer (each mesh has its own material).
+  let hovered: THREE.Group | null = null
+  const setHover = (g: THREE.Group | null) => {
+    if (g === hovered) return
+    const tint = (target: THREE.Group | null, hex: number) => target?.traverse(o => {
+      const m = (o as THREE.Mesh).material
+      if (m instanceof THREE.MeshStandardMaterial) m.emissive.setHex(hex)
+    })
+    tint(hovered, 0x000000)
+    tint(g, HOVER_GLOW)
+    hovered = g
+    canvas.style.cursor = g ? 'grab' : ''
+  }
+
   const startDrag = (id: PartId, group: THREE.Group) => {
     const from = installed(log).get(id)?.slot ?? null
     const lifted: PlaceEvent[] = from ? [...log, { part: id, slot: null, t: 0 }] : log
@@ -183,6 +198,8 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
     candidates.forEach(s => markers.get(s)!.position.copy(slotPos(s)))
     candidates.forEach(s => (markers.get(s)!.visible = options.guides))
     drag = { id, group, candidates, from }
+    setHover(group)
+    canvas.style.cursor = 'grabbing'
   }
 
   const onDown = (e: PointerEvent) => {
@@ -205,6 +222,7 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
       else startDrag(pending.id, pending.group)
       pending = null
     }
+    if (!drag && !downAt) setHover(pick([...parts.values()].filter(g => g.visible))) // not while orbiting
     if (!drag) return
     if (ray.ray.intersectPlane(plane, hit)) drag.group.position.copy(hit).add(grab)
     if (CABLE_OWNER[drag.id]) updateTube(tubeKey(drag.id))
@@ -242,6 +260,7 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
     drag = null
     nearest = null
     markers.forEach(m => (m.visible = false))
+    setHover(null) // before any look swap, so the swapped-out look isn't left tinted
     if (to) { // install, move, or put back where it was
       group.position.copy(slotPos(to))
       group.rotation.set(0, 0, 0)
@@ -263,6 +282,8 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
   canvas.addEventListener('pointermove', onMove)
   canvas.addEventListener('pointerup', onUp)
   canvas.addEventListener('pointercancel', onUp)
+  const onLeave = () => { if (!drag) setHover(null) }
+  canvas.addEventListener('pointerleave', onLeave)
 
   const resize = () => {
     const { clientWidth: w, clientHeight: h } = canvas
@@ -291,6 +312,7 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
       canvas.removeEventListener('pointermove', onMove)
       canvas.removeEventListener('pointerup', onUp)
       canvas.removeEventListener('pointercancel', onUp)
+      canvas.removeEventListener('pointerleave', onLeave)
       renderer.dispose()
     },
   }
