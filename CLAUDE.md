@@ -8,6 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm run dev       # Vite dev server
 npm run build     # tsc (typecheck only, noEmit) && vite build → dist/
 npm run preview   # serve dist/ on :4173
+npm run package:scorm  # build, then zip dist/ into pc-builder-scorm.zip for an LMS
 npm test          # node:test on src/grade.test.ts via Node 22 type stripping
 node --experimental-strip-types --no-warnings --test --test-name-pattern="RAM in A1" src/grade.test.ts   # single test
 ```
@@ -17,6 +18,7 @@ There's no linter. `npx tsc` is the only static check.
 ## Constraints
 
 - **Static site only:** no server and no database. `vite.config.ts` sets `base: './'` so `dist/` works under any subpath (GitHub Pages at `/pc-builder/`, an LMS iframe). Every push to `main` deploys via `.github/workflows/deploy.yml`, and the tests gate that deploy.
+- **SCORM 1.2 is the no-server LMS path.** `public/imsmanifest.xml` lands at the root of `dist/`, and `src/scorm.ts` finds the LMS's `API` in a parent frame and reports the score on finish. Without an LMS it's a no-op. The score is computed client-side, so it can be forged; LTI (below) is the tamper-proof path.
 - **Node runs `src/grade.ts` directly** with `--experimental-strip-types`. So in `grade.ts` and anything it imports:
   - no enums or namespaces (use string-literal unions)
   - relative imports keep the `.ts` extension (`allowImportingTsExtensions` is on)

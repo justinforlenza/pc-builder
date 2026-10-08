@@ -26,6 +26,11 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - run: cd dist && zip -qr ../pc-builder-scorm.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pc-builder-scorm
+          path: pc-builder-scorm.zip
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:

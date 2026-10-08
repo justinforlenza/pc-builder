@@ -2,6 +2,7 @@ import { render } from 'preact'
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { createScene } from './scene.ts'
 import { grade, PARTS, SLOTS, type GradeResult, type PlaceEvent } from './grade.ts'
+import { reportScore } from './scorm.ts'
 import './style.css'
 
 const fmt = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`
@@ -37,7 +38,9 @@ function App() {
 
   const finish = () => {
     if (!confirm('Finish and grade your build? You cannot change it afterwards.')) return
-    setResult(grade(log, performance.now() - start.current))
+    const r = grade(log, performance.now() - start.current)
+    setResult(r)
+    reportScore(r.score)
     dialog.current!.showModal()
   }
 
