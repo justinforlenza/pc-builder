@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import type { PartId, SlotId } from './grade.ts'
 
 // Geometry and layout. Untextured: realism comes from shape and dimension only.
@@ -33,8 +34,10 @@ export const SLOT_POS: Record<Exclude<SlotId, 'pciePower'>, THREE.Vector3> = {
 export const GPU_POWER_OFFSET = v(1.3, -0.05, 1.15)
 /** Where the free end of the SATA data cable waits once the other end is plugged in, relative to that end. */
 export const SATA_PARK = v(0.3, 0.6, 0.5)
-/** Where cables leave the PSU's modular panel, relative to the PSU. */
-export const PSU_CABLE_EXIT = v(0.82, 0.15, 0)
+/** Where each cable leaves the PSU's modular panel (its own socket), relative to the PSU. */
+export const PSU_CABLE_EXIT = {
+  cable24: v(0.82, 0.12, -0.5), cableEps: v(0.82, 0.12, -0.25), cablePcie: v(0.82, 0.12, 0), cableSataPower: v(0.82, -0.12, -0.5),
+}
 
 // Workspace: the case stands on a desk; parts lie on an anti-static mat beside it.
 export const DESK_TOP = -2.72 // the case's feet rest here
@@ -80,8 +83,11 @@ const PCB = 0x1f3d2b, BLACK = 0x161616, DARK = 0x2a2a2e, METAL = 0xa8acb2, ALU =
   GOLD = 0xd4af37, COPPER = 0xb87333, WHITE = 0xe8e8e8, CASE = 0x3a3f4b
 export const SATA_RED = 0xc62828
 
-function box(w: number, h: number, d: number, color: number, at = v(0, 0, d / 2), metal = 0) {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color, metalness: metal, roughness: 0.6 }))
+/** Box with edges rounded by `r` (clamped to the thinnest side; 0 keeps them sharp). */
+function box(w: number, h: number, d: number, color: number, at = v(0, 0, d / 2), metal = 0, r = 0.012) {
+  const rr = Math.min(r, w / 2, h / 2, d / 2)
+  const geo = rr > 0 ? new RoundedBoxGeometry(w, h, d, 2, rr) : new THREE.BoxGeometry(w, h, d)
+  const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, metalness: metal, roughness: 0.6 }))
   m.position.copy(at)
   return m
 }
@@ -103,13 +109,11 @@ function group(...children: THREE.Object3D[]) {
 
 /** Fan of diameter d and thickness t in the XY plane, blowing along z, centered on the origin. */
 function fan(d: number, t: number, color = BLACK) {
-  const bar = 0.07 * d
-  const g = group(
-    box(d, bar, t, color, v(0, d / 2 - bar / 2, 0)), box(d, bar, t, color, v(0, -d / 2 + bar / 2, 0)),
-    box(bar, d, t, color, v(d / 2 - bar / 2, 0, 0)), box(bar, d, t, color, v(-d / 2 + bar / 2, 0, 0)),
-    cyl(0.17 * d, t * 0.9, color, v(0, 0, 0)),
-  )
-  for (const sx of [-1, 1]) for (const sy of [-1, 1]) g.add(box(0.18 * d, 0.18 * d, t, color, v(sx * 0.41 * d, sy * 0.41 * d, 0)))
+  // One-piece frame: a square plate with the round opening and four corner screw holes.
+  const frame = panel(rect(-d / 2, -d / 2, d / 2, d / 2), t, [[0, 0, 0.45 * d],
+    ...[-1, 1].flatMap(sx => [-1, 1].map((sy): [number, number, number] => [sx * 0.44 * d, sy * 0.44 * d, 0.025 * d]))], color)
+  frame.position.z = -t / 2
+  const g = group(frame, cyl(0.17 * d, t * 0.9, color, v(0, 0, 0)))
   for (let i = 0; i < 7; i++) {
     const blade = box(0.34 * d, 0.13 * d, t * 0.12, color, v(0.27 * d, 0, 0))
     blade.rotation.x = 0.45
@@ -134,19 +138,26 @@ function heatsink(w: number, h: number, d: number, n: number, color = DARK) {
   return g
 }
 
-/** Flat panel with rectangular/circular holes, in its local XY plane, extruded along +z. */
-function panel(x0: number, y0: number, x1: number, y1: number, depth: number,
-  holes: ([number, number, number, number] | [number, number, number])[]) {
-  const s = new THREE.Shape()
-  s.moveTo(x0, y0); s.lineTo(x1, y0); s.lineTo(x1, y1); s.lineTo(x0, y1); s.closePath()
+const rect = (x0: number, y0: number, x1: number, y1: number): [number, number][] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+
+/**
+ * Flat panel with the given outline and rectangular/circular holes, in its local XY plane, extruded from z=0 to
+ * z=depth. `bevel` rounds the edges and holes like pressed sheet metal, without changing the size.
+ */
+function panel(outline: [number, number][], depth: number,
+  holes: ([number, number, number, number] | [number, number, number])[], color = CASE, bevel = 0) {
+  const s = new THREE.Shape(outline.map(([x, y]) => new THREE.Vector2(x, y)))
   for (const h of holes) {
     const p = new THREE.Path()
     if (h.length === 3) p.absarc(h[0], h[1], h[2], 0, Math.PI * 2, true)
     else { p.moveTo(h[0], h[1]); p.lineTo(h[0], h[3]); p.lineTo(h[2], h[3]); p.lineTo(h[2], h[1]); p.closePath() }
     s.holes.push(p)
   }
-  return new THREE.Mesh(new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false }),
-    new THREE.MeshStandardMaterial({ color: CASE, metalness: 0.3, roughness: 0.7 }))
+  const geo = new THREE.ExtrudeGeometry(s, bevel
+    ? { depth: depth - 2 * bevel, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelOffset: -bevel, bevelSegments: 3 }
+    : { depth, bevelEnabled: false })
+  if (bevel) geo.translate(0, 0, bevel) // the bevels extend past both ends; keep the panel at z 0..depth
+  return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, metalness: 0.3, roughness: 0.7 }))
 }
 
 /** Desk, anti-static mat, and the mat's coiled ground cord clipped to the case. */
@@ -177,17 +188,18 @@ export function buildDesk(): THREE.Group {
 }
 
 export function buildCase(): THREE.Group {
-  // Motherboard tray with a CPU-backplate cutout and cable-routing slots.
-  const tray = panel(-2.3, -2.5, 2.3, 2.5, 0.1, [
+  // Motherboard tray with a CPU-backplate cutout and cable-routing slots (two beside the board, one above the EPS header).
+  const tray = panel(rect(-2.3, -2.5, 2.3, 2.5), 0.1, [
     [-1.55, 0.85, -0.65, 1.75],
-    [1.25, 0.5, 1.45, 1.6], [1.25, -1.1, 1.45, -0.1],
-  ])
+    [1.25, 0.5, 1.45, 1.6], [1.25, -1.1, 1.45, -0.1], [-1.9, 2.25, -1.3, 2.45],
+  ], CASE, 0.02)
   tray.position.z = -0.1
 
   // Rear wall, drawn in (z, y) and turned to face -x. Cutouts: I/O shield, exhaust fan,
   // seven expansion-slot openings, PSU.
   const slots: [number, number, number, number][] = Array.from({ length: 7 }, (_, i) => [0.25, -0.16 - i * 0.21, 1.35, -0.05 - i * 0.21])
-  const rear = panel(0, -2.5, 2.2, 2.5, 0.1, [
+  // Sharp-edged: its faces are flush with the frame's, so the two read as one shell.
+  const rear = panel(rect(-0.15, -2.5, 2.2, 2.5), 0.1, [
     [0.15, 0.6, 0.62, 2],
     [1.35, 1.35, 0.48],
     ...slots,
@@ -204,13 +216,26 @@ export function buildCase(): THREE.Group {
   const cage = [0.49, 1.45].map(x => box(0.04, 0.75, 1.2, CASE, v(x, -2.125, 1)))
   for (const y of [-2.08, -2.33]) cage.push(box(1, 0.02, 1.2, CASE, v(0.97, y, 1)))
 
-  const feet = [-1.9, 1.9].flatMap(x => [0.3, 1.9].map(z => box(0.4, 0.12, 0.25, BLACK, v(x, -2.66, z))))
+  const feet = [-1.9, 1.9].flatMap(x => [0.3, 1.9].map(z => box(0.4, 0.12, 0.25, BLACK, v(x, -2.66, z), 0, 0.03)))
 
-  return group(
-    tray, rear, rearFan, ...cage, ...feet,
-    box(4.6, 0.1, 2.2, CASE, v(0, 2.55, 1.1)), box(4.6, 0.1, 2.2, CASE, v(0, -2.55, 1.1)),
-    box(0.1, 5.2, 2.2, CASE, v(2.35, 0, 1.1)),
-  )
+  // Front wall with three round intake openings, and a 120 mm fan behind each. Sharp-edged and flush like the rear wall.
+  const FRONT_FANS = [1.6, 0.3, -1.0]
+  const front = panel(rect(-0.15, -2.5, 2.2, 2.5), 0.1, FRONT_FANS.map((y): [number, number, number] => [1.1, y, 0.55]))
+  front.rotation.y = -Math.PI / 2
+  front.position.x = 2.4
+  const frontFans = FRONT_FANS.map(y => {
+    const f = fan(1.2, 0.25)
+    f.rotation.y = Math.PI / 2
+    f.position.set(2.175, y, 1.1)
+    return f
+  })
+
+  // Top and bottom panels wrap over the front and rear walls and the tray, so the shell reads as one piece.
+  const top = panel(rect(-2.4, 2.5, 2.4, 2.6), 2.35, [], CASE, 0.02)
+  const bottom = panel(rect(-2.4, -2.6, 2.4, -2.5), 2.35, [], CASE, 0.02)
+  top.position.z = bottom.position.z = -0.15
+
+  return group(tray, rear, rearFan, front, ...frontFans, top, bottom, ...cage, ...feet)
 }
 
 function motherboard(g: THREE.Group) {
@@ -220,7 +245,7 @@ function motherboard(g: THREE.Group) {
 
   g.add(box(3.2, 3.2, 0.06, PCB))
   for (const [x, y] of [[-1.4, 1.4], [1.4, 1.4], [-1.4, 0], [1.4, 0], [-1.4, -1.4], [1.4, -1.4]])
-    g.add(cyl(0.07, 0.004, METAL, B(x, y, 0.062)))
+    g.add(cyl(0.04, 0.004, METAL, B(x, y, 0.062)), cyl(0.018, 0.006, BLACK, B(x, y, 0.062))) // mounting hole: plated ring, hole
 
   // LGA socket: base, gold pin field, retention frame, load lever.
   on(0.6, 0.6, 0.02, 0x555555, -0.5, 0.7)
@@ -245,9 +270,9 @@ function motherboard(g: THREE.Group) {
   port(0.88, 0.32, 0.18, 0.06, BLACK) // HDMI
   ;[0xf06292, 0x66bb6a, 0x42a5f5].forEach((c, i) => g.add(cyl(0.035, 0.03, c, B(-1.635, 1.0 + i * 0.1, 0.18), 'x')))
 
-  // DIMM slots with latches.
+  // DIMM slots with latches; the preferred pair (A2, B2) is picked out in grey, as on real boards.
   for (const x of [0.45, 0.6, 0.75, 0.9]) {
-    on(0.07, 1.4, 0.06, BLACK, x, 0.7)
+    on(0.07, 1.4, 0.06, x === 0.6 || x === 0.9 ? 0x55555c : BLACK, x, 0.7)
     on(0.08, 0.06, 0.1, 0x777777, x, 1.43)
     on(0.08, 0.06, 0.1, 0x777777, x, -0.03)
   }
@@ -264,11 +289,11 @@ function motherboard(g: THREE.Group) {
 
   // M.2 (M-key, 2280): keyed edge socket with gold contacts, standoff at 80 mm,
   // spare screw holes for 2242/2260 drives, silkscreen outline.
-  on(0.07, 0.155, 0.06, BLACK, -0.985, -0.1875)
-  on(0.07, 0.06, 0.06, BLACK, -0.985, -0.065) // the gap between the two blocks is the M key
+  on(0.07, 0.155, 0.06, BLACK, -0.955, -0.1875)
+  on(0.07, 0.06, 0.06, BLACK, -0.955, -0.065) // the gap between the two blocks is the M key; the drive's fingers slide in
   on(0.006, 0.2, 0.02, GOLD, -0.948, -0.15, 0.6)
   g.add(cyl(0.03, 0.03, GOLD, B(-0.05, -0.15, 0.075)))
-  for (const x of [-0.53, -0.35]) g.add(cyl(0.03, 0.004, METAL, B(x, -0.15, 0.062)))
+  for (const x of [-0.53, -0.35]) g.add(cyl(0.02, 0.004, METAL, B(x, -0.15, 0.062)))
   for (const [x, y, w, h] of [[-0.5, -0.01, 1, 0.008], [-0.5, -0.29, 1, 0.008], [-1, -0.15, 0.008, 0.28], [0, -0.15, 0.008, 0.28]] as const)
     on(w, h, 0.002, WHITE, x, y)
 
@@ -277,33 +302,51 @@ function motherboard(g: THREE.Group) {
   on(0.36, 0.36, 0.04, 0x3d3d44, 0.8, -1.0, 0.5)
   g.add(cyl(0.1, 0.03, ALU, B(0.25, -0.62, 0.075)))
   for (let i = 0; i < 4; i++) on(0.14, 0.1, 0.07, BLACK, 1.5, -0.65 - i * 0.14)
-  on(0.12, 0.6, 0.12, WHITE, 1.5, 0.45) // 24-pin header
-  on(0.35, 0.12, 0.12, WHITE, -1, 1.48) // EPS header
+  on(0.14, 0.62, 0.12, WHITE, 1.5, 0.45) // 24-pin header, a shroud the plug nests into
+  on(0.37, 0.14, 0.12, WHITE, -1, 1.48) // EPS header
   on(0.35, 0.07, 0.05, BLACK, 0.85, -1.5) // front-panel header
   on(0.2, 0.07, 0.05, BLACK, 0.3, -1.5) // USB header
   for (const [x, y] of [[0.2, 1.45], [1.35, 1.45], [1.35, -0.2]]) on(0.1, 0.05, 0.06, WHITE, x, y) // fan headers
   for (let i = 0; i < 4; i++) g.add(cyl(0.035, 0.09, 0xf9a825, B(-1.3 + i * 0.1, -1.5, 0.105))) // audio caps
   for (let i = 0; i < 5; i++) g.add(cyl(0.03, 0.08, BLACK, B(-0.25 + i * 0.09, 1.45, 0.1)))
+  for (let i = 0; i < 4; i++) g.add(cyl(0.03, 0.08, BLACK, B(0.25, 0.1 + i * 0.1, 0.1))) // caps between the socket and the DIMMs
+
+  // Controllers and small parts: USB 3 header, RGB/USB-C headers, LAN, audio codec, super I/O, BIOS, debug LEDs,
+  // onboard power/reset buttons, POST code display, and a scatter of passives.
+  on(0.2, 0.1, 0.12, 0x1565c0, 1.3, 1.0)
+  on(0.1, 0.05, 0.06, BLACK, 1.1, 1.2); on(0.1, 0.05, 0.06, BLACK, 1.3, -0.45)
+  for (const [x, y, s] of [[-1.45, -0.4, 0.12], [-1.15, -1.3, 0.1], [0.25, -1.2, 0.15], [0.0, -0.95, 0.08], [-0.2, -1.3, 0.1]] as const) on(s, s, 0.015, BLACK, x, y)
+  ;[0xef5350, 0xffca28, 0xffffff, 0x66bb6a].forEach((c, i) => on(0.03, 0.03, 0.02, c, 1.05 + i * 0.05, 1.45))
+  g.add(cyl(0.03, 0.03, 0xc62828, B(1.2, -1.5, 0.075)), cyl(0.03, 0.03, 0x444444, B(1.32, -1.5, 0.075)))
+  on(0.1, 0.06, 0.03, BLACK, 1.45, -1.35); on(0.08, 0.04, 0.002, 0xc62828, 1.45, -1.35 + 0.015)
+  let seed = 7 // fixed pseudo-random scatter of SMD passives in the empty areas, same every build
+  const rnd = () => (seed = (seed * 48271) % 2147483647) / 2147483647
+  for (const [x0, y0, x1, y1] of [[0.35, -0.45, 1.0, -0.1], [-1.5, -0.3, -0.5, 0.2], [0.1, -1.4, 0.5, -0.8], [-0.9, -1.45, -0.4, -1.05], [1.15, 0.0, 1.4, 0.35]])
+    for (let i = 0; i < 8; i++) g.add(box(0.03, 0.015, 0.01, i % 3 ? 0x222222 : 0x8a7a5a, B(x0 + rnd() * (x1 - x0), y0 + rnd() * (y1 - y0), 0.065), 0, 0))
 }
 
 function gpu(g: THREE.Group) {
   // Origin = slot center at the board surface. Card is perpendicular to the board (z),
   // cooler shroud hangs below the PCB (-y), bracket at the rear (-x).
   const L = 2.48, cx = 0.36, D = 1.02, cz = 0.08 + D / 2
+  // Shroud: a plate with three round fan openings, built in the XZ plane and turned to hang below the PCB.
+  const shroud = panel(rect(-L / 2, -D / 2, L / 2, D / 2), 0.14, [-0.81, 0, 0.81].map((x): [number, number, number] => [x, 0, 0.33]), BLACK, 0.03)
+  shroud.rotation.x = Math.PI / 2
+  shroud.position.set(cx, -0.2, cz)
   g.add(
     box(L, 0.03, D, 0x1b3a26, v(cx, 0, cz)), // PCB
     box(0.9, 0.025, 0.08, GOLD, v(0, 0, 0.04), 0.6), // edge connector
-    box(L, 0.02, D, DARK, v(cx, 0.03, cz), 0.6), // backplate
-    box(L - 0.1, 0.18, D - 0.12, METAL, v(cx, -0.11, cz), 0.6), // fin stack, peeking out from the shroud
-    box(L, 0.14, D, BLACK, v(cx, -0.27, cz)), // shroud
-    box(L, 0.03, 0.06, 0xb71c1c, v(cx, -0.33, 0.08 + D - 0.04)), // accent strip
-    box(0.03, 0.44, 1.2, ALU, v(-0.9, -0.17, 0.6), 0.8), // bracket
+    box(L, 0.02, D, DARK, v(cx, 0.025, cz), 0.6, 0.01), // backplate
+    box(L - 0.1, 0.185, D - 0.12, METAL, v(cx, -0.1075, cz), 0.6, 0.005), // fin stack between the PCB and the shroud
+    shroud,
+    box(L, 0.03, 0.02, 0xb71c1c, v(cx, -0.27, 0.08 + D + 0.01), 0, 0.005), // accent strip along the outer edge
+    box(0.03, 0.44, 1.2, ALU, v(-0.895, -0.17, 0.6), 0.8), // bracket
     box(0.36, 0.1, 0.1, BLACK, GPU_POWER_OFFSET.clone().setZ(1.1)), // 8-pin (6+2) power socket
   )
   for (const x of [-0.45, 0.36, 1.17]) {
     const f = fan(0.72, 0.06)
     f.rotation.x = Math.PI / 2
-    f.position.set(x, -0.37, cz)
+    f.position.set(x, -0.3, cz) // recessed in its opening, frame just inside the shroud's underside
     g.add(f)
   }
   for (const z of [0.3, 0.55, 0.8]) g.add(box(0.03, 0.06, 0.15, BLACK, v(-0.925, -0.1, z))) // DisplayPorts
@@ -313,12 +356,9 @@ function gpu(g: THREE.Group) {
 
 function psu(g: THREE.Group) {
   // Origin = center. Rear (-x) has the AC inlet, switch and vent; front (+x) the modular panel; fan on the bottom.
-  g.add(box(1.6, 0.8, 1.5, 0x1e1e1e, v(0, 0, 0)))
-  g.add(box(1.1, 0.5, 0.01, 0x3a3a40, v(0, 0, 0.755))) // spec label
-  const f = fan(1.2, 0.04)
-  f.rotation.x = Math.PI / 2
-  f.position.set(0, -0.42, 0)
-  g.add(f)
+  g.add(box(1.6, 0.8, 1.5, 0x1e1e1e, v(0, 0, 0), 0, 0.03))
+  g.add(box(1.1, 0.5, 0.01, 0x3a3a40, v(0, 0, 0.755), 0, 0)) // spec label
+  // The bottom fan is never seen (it faces the floor in the case and the mat on the desk), so there isn't one.
   g.add(box(0.03, 0.18, 0.26, BLACK, v(-0.815, 0.2, -0.45))) // AC inlet
   g.add(box(0.03, 0.12, 0.08, 0xc62828, v(-0.815, 0.2, -0.15))) // switch
   for (let i = 0; i < 7; i++) g.add(box(0.02, 0.6, 0.05, BLACK, v(-0.81, 0, 0.05 + i * 0.1))) // vent slats
@@ -341,9 +381,9 @@ function cooler(g: THREE.Group) {
   // Tower cooler. Origin = bottom of the cold plate. Fan on the +x side blows toward the rear exhaust.
   g.add(box(0.42, 0.42, 0.06, COPPER, v(0, 0, 0.03), 0.8))
   g.add(box(0.9, 0.1, 0.03, METAL, v(0, 0, 0.075), 0.8)) // mounting bar
-  for (const x of [-0.15, -0.05, 0.05, 0.15]) g.add(cyl(0.025, 0.4, COPPER, v(x, 0, 0.28)))
+  for (const x of [-0.15, -0.05, 0.05, 0.15]) g.add(cyl(0.025, 1.5, COPPER, v(x, 0, 0.81))) // heat pipes, through the stack and out the top
   for (let i = 0; i < 16; i++) g.add(box(0.5, 1.25, 0.015, ALU, v(0, 0, 0.42 + i * 0.07), 0.8))
-  g.add(box(0.52, 1.27, 0.04, BLACK, v(0, 0, 1.52))) // top cover
+  g.add(box(0.52, 1.27, 0.04, BLACK, v(0, 0, 1.495), 0, 0.03)) // top cover, resting on the last fin
   const f = fan(1.2, 0.12)
   f.rotation.y = Math.PI / 2
   f.position.set(0.32, 0, 0.95)

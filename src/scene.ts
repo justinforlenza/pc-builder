@@ -11,7 +11,18 @@ const HOVER_GLOW = 0x1e4a66
 const CABLE_OWNER: Partial<Record<PartId, PartId>> = {
   cable24: 'psu', cableEps: 'psu', cablePcie: 'psu', cableSataPower: 'psu',
 }
-const CABLES = Object.keys(CABLE_OWNER) as PartId[]
+const CABLES = Object.keys(CABLE_OWNER) as (keyof typeof PSU_CABLE_EXIT)[]
+/** Cable thickness: the 24-wire bundle is fattest, the flat SATA data lead thinnest. */
+const CABLE_RADIUS: Record<string, number> = { cable24: 0.055, cableEps: 0.045, cablePcie: 0.045, cableSataPower: 0.035, sataData: 0.03 }
+/**
+ * How an installed cable is dressed: in through the tray grommet beside the board, along the back of the tray, and
+ * out through the grommet next to its header. Each grommet gets a point on both sides so the spline passes straight
+ * through the hole. Other cables run directly, in front of the tray.
+ */
+const CABLE_ROUTE: Partial<Record<PartId, THREE.Vector3[]>> = {
+  cable24: [v(1.35, -0.6, 0.6), v(1.35, -0.6, -0.25), v(1.35, 1.05, -0.25), v(1.35, 1.05, 0.45)],
+  cableEps: [v(1.35, -0.6, 0.6), v(1.35, -0.6, -0.25), v(-1.6, 2.35, -0.25), v(-1.6, 2.35, 0.45)],
+}
 /** The SATA data cable lies on the mat; its two ends are separate parts that share one tube, keyed 'sataData'. */
 const isDataEnd = (id: PartId) => id === 'sataData1' || id === 'sataData2'
 const hasTube = (id: PartId) => !!CABLE_OWNER[id] || isDataEnd(id)
@@ -94,19 +105,29 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
   const options: SceneOptions = { labels: false, guides: false }
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+  renderer.shadowMap.enabled = true
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap
   const scene = new THREE.Scene()
   scene.background = new THREE.Color(0xdfe3ea)
   const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100)
   camera.position.set(4.6, 6, 14)
   const sun = new THREE.DirectionalLight(0xffffff, 1.5)
-  sun.position.set(4, 8, 10)
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x666677, 2), sun)
+  sun.target.position.set(4.6, -1.4, 1.6) // the desk's centre, so the shadow frustum covers the whole mat
+  sun.position.copy(sun.target.position).add(v(4, 8, 10))
+  sun.castShadow = true
+  sun.shadow.mapSize.set(2048, 2048)
+  sun.shadow.bias = -0.0005
+  sun.shadow.normalBias = 0.02
+  Object.assign(sun.shadow.camera, { left: -10, right: 10, top: 10, bottom: -10, near: 1, far: 40 })
+  sun.shadow.camera.updateProjectionMatrix()
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x666677, 2), sun, sun.target)
 
   scene.add(buildCase())
   scene.add(buildDesk())
 
   const parts = new Map((Object.keys(PARTS) as PartId[]).map(id => [id, buildPart(id)]))
   parts.forEach(p => scene.add(p))
+  scene.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = o.receiveShadow = true })
   const log: PlaceEvent[] = []
   const isPlaced = (id: PartId) => installed(log).has(id)
   const syncLabels = () => parts.forEach((g, id) => {
@@ -131,13 +152,18 @@ export function createScene(canvas: HTMLCanvasElement, { onChange, onBlocked }: 
       const out = (p: THREE.Vector3) => z(p, 0.5).setZ(exits && inCase(p) ? Math.max(p.z + 0.5, 2.6) : p.z + 0.5)
       pts = [z(a, 0.15), out(a), out(b), z(b, 0.15)]
     } else {
-      const c = parts.get(key as PartId)!
+      const id = key as keyof typeof PSU_CABLE_EXIT
+      const c = parts.get(id)!
       if (!c.visible) return
-      const from = parts.get('psu')!.position.clone().add(PSU_CABLE_EXIT)
-      pts = [from, from.clone().add(v(0.3, 0.3, 0.6)), z(c.position, 0.6), z(c.position, 0.15)]
+      const from = parts.get('psu')!.position.clone().add(PSU_CABLE_EXIT[id])
+      const route = isPlaced(id) && drag?.id !== id ? CABLE_ROUTE[id] : undefined
+      pts = route
+        ? [from, ...route, z(c.position, 0.45), z(c.position, 0.13)]
+        : [from, from.clone().add(v(0.3, 0.3, 0.9)), z(c.position, 0.6), z(c.position, 0.13)] // rises to clear the GPU
     }
     const color = key === 'sataData' ? SATA_RED : 0x111111
-    const m = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 32, 0.04, 8), new THREE.MeshStandardMaterial({ color }))
+    const m = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 48, CABLE_RADIUS[key], 8), new THREE.MeshStandardMaterial({ color }))
+    m.castShadow = m.receiveShadow = true
     tubes.set(key, m)
     scene.add(m)
   }
