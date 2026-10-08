@@ -1,0 +1,4 @@
+[
+  { "id": "practice", "title": "Practice", "about": "Part names and placement guides on", "query": "labels=1&guides=1" },
+  { "id": "assessment", "title": "Assessment", "about": "Helpers off and locked", "query": "lock=1" }
+]

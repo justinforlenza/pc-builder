@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm run dev       # Vite dev server
 npm run build     # tsc (typecheck only, noEmit) && vite build → dist/
 npm run preview   # serve dist/ on :4173
-npm run package:scorm  # build, then zip dist/ into pc-builder-scorm.zip for an LMS
+npm run package:scorm  # build, then zip dist/ into pc-builder-scorm-<preset>.zip, one per scorm-presets.json entry
 npm test          # node:test on src/grade.test.ts via Node 22 type stripping
 node --experimental-strip-types --no-warnings --test --test-name-pattern="RAM in A1" src/grade.test.ts   # single test
 ```
@@ -17,8 +17,8 @@ There's no linter. `npx tsc` is the only static check.
 
 ## Constraints
 
-- **Static site only:** no server and no database. `vite.config.ts` sets `base: './'` so `dist/` works under any subpath (GitHub Pages at `/pc-builder/`, an LMS iframe). Publishing a GitHub release runs `.github/workflows/deploy.yml`: tests gate it, it attaches `pc-builder-scorm.zip` to the release, then deploys Pages with `VITE_SCORM_URL` set so the site header links to that zip. Other builds (dev, the zip itself) show no link.
-- **SCORM 1.2 is the no-server LMS path.** `public/imsmanifest.xml` lands at the root of `dist/`, and `src/scorm.ts` finds the LMS's `API` in a parent frame and reports the score on finish. Without an LMS it's a no-op. The score is computed client-side, so it can be forged; LTI (below) is the tamper-proof path.
+- **Static site only:** no server and no database. `vite.config.ts` sets `base: './'` so `dist/` works under any subpath (GitHub Pages at `/pc-builder/`, an LMS iframe). Publishing a GitHub release runs `.github/workflows/deploy.yml`: tests gate it, it attaches the preset zips to the release, then deploys Pages with `VITE_SCORM_URL` (the release's download folder) set so the site header has a menu linking to each zip. Other builds (dev, the zip itself) show no link.
+- **SCORM 1.2 is the no-server LMS path.** `public/imsmanifest.xml` lands at the root of `dist/`, and `src/scorm.ts` finds the LMS's `API` in a parent frame and reports the score on finish. Without an LMS it's a no-op. Teacher settings are URL params read in `main.tsx` (`labels`, `guides`, `lock` hides the toggles); each `scorm-presets.json` entry bakes its params into its zip's manifest launch href. The score is computed client-side, so it can be forged; LTI (below) is the tamper-proof path.
 - **Node runs `src/grade.ts` directly** with `--experimental-strip-types`. So in `grade.ts` and anything it imports:
   - no enums or namespaces (use string-literal unions)
   - relative imports keep the `.ts` extension (`allowImportingTsExtensions` is on)

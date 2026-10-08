@@ -20,6 +20,13 @@ dialog li { margin-bottom: 0.5rem; }
 button.secondary { background: transparent; border: 1px solid rgba(255, 255, 255, 0.5); }
 .options { display: flex; gap: 1rem; font-size: 0.9rem; }
 .options label { display: flex; align-items: center; gap: 0.3rem; cursor: pointer; }
+.menu { position: relative; }
+.menu summary { list-style: none; }
+.menu summary::-webkit-details-marker { display: none; }
+.menu ul { position: absolute; right: 0; margin: 0.4rem 0 0; padding: 0.3rem; list-style: none; width: 18rem; background: #fff; border-radius: 6px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3); }
+.menu a { display: block; padding: 0.5rem; color: #222; text-decoration: none; border-radius: 4px; }
+.menu a:hover { background: #e6f6f8; }
+.menu strong { display: block; }
 .welcome { max-height: 90vh; overflow: auto; }
 .welcome h3 { margin: 1.2rem 0 0.4rem; }
 .welcome p, .welcome ul { margin: 0.4rem 0; }

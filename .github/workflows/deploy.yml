@@ -24,14 +24,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-      - run: npm run package:scorm # built without the download link, for the LMS
-      - run: gh release upload "$TAG" pc-builder-scorm.zip --clobber
+      - run: npm run package:scorm # one zip per scorm-presets.json entry, built without the download links
+      - run: gh release upload "$TAG" pc-builder-scorm-*.zip --clobber
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
       - run: npm run build
         env:
-          VITE_SCORM_URL: https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/pc-builder-scorm.zip
+          VITE_SCORM_URL: https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:

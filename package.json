@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "package:scorm": "npm run build && cd dist && zip -qr ../pc-builder-scorm.zip .",
+    "package:scorm": "npm run build && node scripts/package-scorm.mjs",
     "test": "node --experimental-strip-types --no-warnings --test src/grade.test.ts"
   },
   "dependencies": {

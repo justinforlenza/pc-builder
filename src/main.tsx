@@ -3,7 +3,12 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import { createScene, type SceneOptions } from './scene.ts'
 import { grade, PARTS, RULES, SLOTS, type GradeResult, type PlaceEvent } from './grade.ts'
 import { reportScore } from './scorm.ts'
+import presets from '../scorm-presets.json'
 import './style.css'
+
+// Launch settings, e.g. from a SCORM preset's href: ?labels=1&guides=1, or ?lock=1 to hide the toggles.
+const params = new URLSearchParams(location.search)
+const locked = params.has('lock')
 
 const fmt = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`
 
@@ -26,7 +31,7 @@ function App() {
   const [now, setNow] = useState(0)
   const [result, setResult] = useState<GradeResult | null>(null)
   const [note, setNote] = useState<string | null>(null)
-  const [options, setOptions] = useState<SceneOptions>({ labels: false, guides: false })
+  const [options, setOptions] = useState<SceneOptions>({ labels: params.has('labels'), guides: params.has('guides') })
   const elapsed = () => (start.current === null ? 0 : performance.now() - start.current)
 
   useEffect(() => {
@@ -70,9 +75,16 @@ function App() {
       <canvas ref={canvas} />
       <header>
         <h1>PC Builder</h1>
-        <Options value={options} onChange={setOptions} />
+        {!locked && <Options value={options} onChange={setOptions} />}
         <span class="timer" aria-label="Elapsed time">{fmt(now)}</span>
-        {import.meta.env.VITE_SCORM_URL && <a class="button" href={import.meta.env.VITE_SCORM_URL} download>SCORM package</a>}
+        {import.meta.env.VITE_SCORM_URL && (
+          <details class="menu">
+            <summary class="button">SCORM package</summary>
+            <ul>{presets.map(p => (
+              <li><a href={`${import.meta.env.VITE_SCORM_URL}pc-builder-scorm-${p.id}.zip`}><strong>{p.title}</strong> {p.about}</a></li>
+            ))}</ul>
+          </details>
+        )}
         <button class="secondary" onClick={() => welcome.current!.showModal()}>Help</button>
         <button onClick={finish} disabled={!!result}>Finish build</button>
       </header>
@@ -98,9 +110,13 @@ function App() {
           <li>going over {RULES.timeLimitMin} minutes</li>
         </ul>
         <p>Only the finished build counts, so you can fix mistakes as you go. The timer starts when you press Start.</p>
-        <h3>Options</h3>
-        <p>Turn on helpers here or in the top bar at any time:</p>
-        <Options value={options} onChange={setOptions} />
+        {!locked && (
+          <>
+            <h3>Options</h3>
+            <p>Turn on helpers here or in the top bar at any time:</p>
+            <Options value={options} onChange={setOptions} />
+          </>
+        )}
         <form method="dialog"><button>{start.current === null ? 'Start building' : 'Back to building'}</button></form>
       </dialog>
       <dialog ref={dialog} onCancel={e => e.preventDefault()}>
